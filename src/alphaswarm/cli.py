@@ -1,4 +1,4 @@
-"""AlphaSwarm command line: ``alphaswarm inject|run|report|web``.
+"""AlphaSwarm command line: ``alphaswarm inject|run|report|web|cycles``.
 
 stdout carries only command output (tables, paths, help); logs go to stderr.
 Exit codes: 0 success, 1 runtime failure, 2 usage or configuration error,
@@ -11,17 +11,20 @@ from __future__ import annotations
 import argparse
 import asyncio
 import inspect
+import re
 import sys
 import traceback
 from collections.abc import Awaitable, Callable, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Final
+from typing import TYPE_CHECKING, Any, Final, cast, get_args
 
 from pydantic import ValidationError
 
 from alphaswarm import instance_lock
-from alphaswarm.errors import InferenceConfigError, ProviderConfigError
+from alphaswarm.errors import CycleNotFoundError, CycleNotReadyError, InferenceConfigError, ProviderConfigError
+from alphaswarm.export import export_cycle, export_json
 from alphaswarm.fsutil import atomic_write_text
+from alphaswarm.graph import CycleStatus
 from alphaswarm.ingestion.fixture import load_context_fixture
 from alphaswarm.logging import configure_logging
 from alphaswarm.personas import load_bracket_configs
@@ -585,6 +588,174 @@ CONFIG_ERRORS: Final[tuple[type[BaseException], ...]] = (
 )
 
 
+# ---------------------------------------------------------------------------
+# alphaswarm cycles list | export | delete (docs/DECISIONS.md#adr-cycle-export)
+# ---------------------------------------------------------------------------
+
+CYCLE_LIST_MAX: Final = 100
+
+
+def _cycle_id_arg(value: str) -> str:
+    """argparse type: a cycle id in the API's format (str(uuid4()))."""
+    from alphaswarm.web.params import CYCLE_ID_PATTERN
+
+    if re.fullmatch(CYCLE_ID_PATTERN, value) is None:
+        raise argparse.ArgumentTypeError(f"not a cycle id: {value!r}")
+    return value
+
+
+def _cycle_limit_arg(value: str) -> int:
+    """argparse type: an integer in 1..CYCLE_LIST_MAX."""
+    try:
+        limit = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"not a number: {value!r}") from exc
+    if not 1 <= limit <= CYCLE_LIST_MAX:
+        raise argparse.ArgumentTypeError(f"--limit must be between 1 and {CYCLE_LIST_MAX}")
+    return limit
+
+
+def _add_cycles_parser(
+    sub: argparse._SubParsersAction[argparse.ArgumentParser],
+    verbose: argparse.ArgumentParser,
+) -> None:
+    cycles = sub.add_parser("cycles", parents=[verbose], help="List, export or delete stored cycles")
+    actions = cycles.add_subparsers(dest="cycles_command", metavar="ACTION", required=True)
+
+    listing = actions.add_parser("list", parents=[verbose], help="List stored cycles, newest first")
+    listing.add_argument(
+        "--limit", type=_cycle_limit_arg, default=20, help=f"How many cycles (1-{CYCLE_LIST_MAX}, default 20)"
+    )
+    listing.add_argument(
+        "--status",
+        choices=(*get_args(CycleStatus), "all"),
+        default="complete",
+        help="Only cycles with this status (default: complete)",
+    )
+
+    exporting = actions.add_parser(
+        "export", parents=[verbose], help="Write one cycle as alphaswarm.cycle-export/1 JSON"
+    )
+    exporting.add_argument("cycle_id", type=_cycle_id_arg, metavar="CYCLE_ID")
+    exporting.add_argument("-o", "--output", default=None, help="Write to this file instead of stdout")
+
+    deleting = actions.add_parser("delete", parents=[verbose], help="Delete one cycle from Neo4j")
+    deleting.add_argument("cycle_id", type=_cycle_id_arg, metavar="CYCLE_ID")
+    deleting.add_argument("--yes", action="store_true", help="Do not ask for confirmation")
+
+
+async def _handle_cycles(args: argparse.Namespace) -> None:
+    """``alphaswarm cycles …``: Neo4j only, never a model (docs/DECISIONS.md#adr-cycle-export)."""
+    settings = AppSettings()
+    async with open_runtime(settings, with_ollama=False) as runtime:
+        graph = _require_graph(runtime)
+        if args.cycles_command == "list":
+            await _cycles_list(graph, limit=args.limit, status=args.status)
+        elif args.cycles_command == "export":
+            await _cycles_export(
+                graph,
+                args.cycle_id,
+                output=args.output,
+                reports_dir=settings.resolve_path(settings.reports_dir),
+            )
+        else:
+            await _cycles_delete(graph, args.cycle_id, yes=args.yes, settings=settings)
+
+
+def _short_seed(seed: str) -> str:
+    return seed if len(seed) <= 60 else f"{seed[:57]}..."
+
+
+async def _cycles_list(graph: GraphStateManager, *, limit: int, status: str) -> None:
+    statuses: tuple[CycleStatus, ...] = get_args(CycleStatus) if status == "all" else (cast(CycleStatus, status),)
+    rows = await graph.read_completed_cycles(limit, statuses=statuses)
+    if not rows:
+        print("No cycles.")
+        return
+    print(f"{'CYCLE ID':<36}  {'CREATED (UTC)':<19}  {'STATUS':<9}  {'ROUNDS':>6}  {'FINAL B/S/H':<11}  SEED")
+    for row in rows:
+        final = "-" if row["final_buy"] is None else f"{row['final_buy']}/{row['final_sell']}/{row['final_hold']}"
+        seed = _short_seed(row["seed_rumor"])
+        print(
+            f"{row['cycle_id']:<36}  {row['created_at'][:19]:<19}  {row['status']:<9}  "
+            f"{row['round_count']:>6}  {final:<11}  {seed}"
+        )
+
+
+async def _cycles_export(graph: GraphStateManager, cycle_id: str, *, output: str | None, reports_dir: Path) -> None:
+    try:
+        export = await export_cycle(graph, cycle_id, reports_dir=reports_dir)
+    except (CycleNotFoundError, CycleNotReadyError) as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        raise SystemExit(EXIT_FAILURE) from exc
+    payload = export_json(export)
+    if output is None:
+        sys.stdout.write(payload + "\n")
+        return
+    path = Path(output).expanduser()
+    await asyncio.to_thread(path.parent.mkdir, parents=True, exist_ok=True)
+    await asyncio.to_thread(atomic_write_text, path, payload + "\n", mode=0o644)
+    print(f"Exported cycle {cycle_id} to {path} ({len(payload.encode('utf-8')) // 1024} KB)")
+
+
+async def _describe_delete(graph: GraphStateManager, cycle_id: str, status: str) -> None:
+    """Print exactly what a delete of *cycle_id* removes and keeps, before anything goes."""
+    rows = await graph.read_cycle_export_rows(cycle_id)
+    cycle = rows["cycle"]
+    created = cycle["created_at"][:19] if cycle is not None else "unknown"
+    seed = _short_seed(cycle["seed_rumor"]) if cycle is not None else ""
+    rounds = len({d["round_num"] for d in rows["decisions"]})
+    print(f"Cycle {cycle_id} ({status}, created {created}, {rounds} rounds): {seed}")
+    print(
+        f"  Deletes: {len(rows['decisions'])} decisions with their rationale episodes and citations, "
+        f"the cycle's INFLUENCED_BY edges, {len(rows['shocks'])} shock event(s) and the Cycle node."
+    )
+    print("  Keeps: every agent, entities other cycles mention, and the report and advisory files.")
+
+
+def _cycle_files(settings: AppSettings, cycle_id: str) -> list[Path]:
+    """Files other commands wrote for this cycle; delete lists them and keeps them."""
+    reports = settings.resolve_path(settings.reports_dir)
+    advisory = settings.resolve_path(settings.advisory_dir)
+    return [
+        reports / f"{cycle_id}_report.md",
+        advisory / f"{cycle_id}_advisory.json",
+    ]
+
+
+async def _cycles_delete(graph: GraphStateManager, cycle_id: str, *, yes: bool, settings: AppSettings) -> None:
+    status = await graph.read_cycle_status(cycle_id)
+    if status is None:
+        print(f"Error: No cycle {cycle_id}", file=sys.stderr)
+        raise SystemExit(EXIT_FAILURE)
+    if status == "running":
+        print(f"Error: cycle {cycle_id} is still running; stop the simulation before deleting it.", file=sys.stderr)
+        raise SystemExit(EXIT_FAILURE)
+    await _describe_delete(graph, cycle_id, status)
+    if not yes:
+        if not sys.stdin.isatty():
+            print("Error: refusing to delete without --yes when stdin is not a terminal.", file=sys.stderr)
+            raise SystemExit(EXIT_USAGE)
+        print(
+            f"Delete cycle {cycle_id} ({status}) and all its decisions? "
+            "Type the first 8 characters of the id to confirm: ",
+            end="",
+            file=sys.stderr,
+            flush=True,
+        )
+        answer = await asyncio.to_thread(sys.stdin.readline)
+        if answer.strip() != cycle_id[:8]:
+            print("Not deleted: the confirmation did not match.", file=sys.stderr)
+            raise SystemExit(EXIT_FAILURE)
+    removed = await graph.delete_cycle(cycle_id)
+    print(f"Deleted cycle {cycle_id} ({removed} nodes).")
+    kept = await asyncio.to_thread(lambda: [p for p in _cycle_files(settings, cycle_id) if p.exists()])
+    if kept:
+        print("Kept these files; delete them by hand if you no longer need them:")
+        for path in kept:
+            print(f"  {path}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     """The ``alphaswarm`` parser; ``-v`` is accepted before or after the subcommand.
 
@@ -657,6 +828,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Check Neo4j, Ollama, model aliases, MLX, launchctl and the UI build",
     )
     doctor.add_argument("--json", action="store_true", help="Print the report as JSON")
+    _add_cycles_parser(sub, verbose)
     return parser
 
 
@@ -734,6 +906,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         "report": lambda: _invoke(_handle_report, report_cycle, args.output),
         "web": lambda: _invoke(_handle_web, args.host, args.port),
         "doctor": lambda: _invoke(_handle_doctor, args.json),
+        "cycles": lambda: _invoke(_handle_cycles, args),
     }
     command = commands[args.command]
     verbose = getattr(args, "verbose", False)
