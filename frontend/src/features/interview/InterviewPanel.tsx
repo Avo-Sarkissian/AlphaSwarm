@@ -27,6 +27,7 @@ import { askAgent } from '../../api/interview';
 import { useAgents } from '../../context/AgentsContext';
 import { useEdgesCtx } from '../../context/EdgesContext';
 import { useFrameMeta } from '../../context/FrameMetaContext';
+import { demoLock } from '../../data-source';
 import { useAgentDecisions } from '../../hooks/useAgentDecisions';
 import { useLatestCompletedCycle } from '../../hooks/useLatestCompletedCycle';
 import { useRounds } from '../../hooks/useRounds';
@@ -154,6 +155,7 @@ interface InterviewPanelProps {
 }
 
 export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
+  const lock = demoLock();
   // Look the agent up live on every frame instead of freezing the clicked object.
   const { agents } = useAgents();
   const agent = useMemo(() => agents.find((a) => a.id === agentId) ?? null, [agents, agentId]);
@@ -191,7 +193,8 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
   };
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState<string>('');
-  const [tab, setTab] = useState<'chat' | 'rationale'>('chat');
+  // The read-only demo cannot ask the models, so it opens on the stored rationales.
+  const [tab, setTab] = useState<'chat' | 'rationale'>(lock.locked ? 'rationale' : 'chat');
   const [busy, setBusy] = useState<boolean>(false);
   const logRef = useRef<HTMLDivElement | null>(null);
 
@@ -334,7 +337,7 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
                     key={i}
                     className="itv-prompt"
                     onClick={() => void handleSend(p)}
-                    disabled={busy}
+                    disabled={lock.locked || busy}
                   >
                     {p}
                   </button>
@@ -350,11 +353,18 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
                       if (e.key === 'Enter' && !e.shiftKey) void handleSend();
                     }}
                     placeholder={`Ask ${agentId} anything…`}
-                    disabled={busy}
+                    disabled={lock.locked || busy}
+                    title={lock.title}
                     data-autofocus
                   />
                 </div>
-                <button className="btn primary" onClick={() => void handleSend()} disabled={busy || !input.trim()}>
+                <button
+                  className="btn primary"
+                  onClick={() => void handleSend()}
+                  disabled={lock.locked || busy || !input.trim()}
+                  title={lock.title}
+                  data-demo-lock="interview"
+                >
                   Ask
                 </button>
               </div>

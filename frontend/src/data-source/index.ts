@@ -28,3 +28,18 @@ export function resetDataSourceForTests(): void {
   active = null;
   installRequestOverride(null);
 }
+
+/** Tooltip on every control the read-only demo disables. */
+export const DEMO_LOCK_TITLE =
+  'Read-only demo: this needs the local models and Neo4j. Clone the repository to run it.';
+
+export interface DemoLock {
+  locked: boolean;
+  title: string | undefined;
+}
+
+/** Disabled state and tooltip for a control the static demo cannot offer. */
+export function demoLock(): DemoLock {
+  const locked = getDataSource().readOnly;
+  return { locked, title: locked ? DEMO_LOCK_TITLE : undefined };
+}
