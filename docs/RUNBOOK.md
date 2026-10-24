@@ -363,3 +363,22 @@ Logs go to stderr, so `alphaswarm report <cycle_id> > report.txt` captures only 
 - `git config blame.ignoreRevsFile .git-blame-ignore-revs` makes local `git blame` skip the mass reformat.
 
 **Frontend.** Node 22 (`frontend/.nvmrc`). CI runs `npm ci`, `npm audit --omit=dev --audit-level=high`, `npm run lint` (ESLint), `npx vitest run` and `npm run build` (which type-checks). Test layout, rules and the lint baseline: `frontend/TESTING.md`.
+
+## 8. Point-in-time evaluation and ablations
+
+Protocol and decision rules: `docs/methodology.md`. Run everything from the repo
+root in your own shell, with the web server stopped (each eval cycle takes the
+instance lock) and the Ollama environment from §1.
+
+1. `uv sync --group eval` once (pyarrow, for the parquet output).
+2. `uv run python eval/run_eval.py check --worker-release YYYY-MM-DD --require-fixtures --require-labels`
+3. `uv run python eval/run_eval.py budget`
+4. `uv run python eval/run_eval.py run --arm swarm`, then `--arm anon`; the P7.8
+   arms by name. Stopping and rerunning is safe: finished cycles are skipped,
+   failed ones are retried. `.env` must not set `ALPHASWARM_SIMULATION__*` or
+   `ALPHASWARM_NUM_ROUNDS` (the runner refuses to start).
+5. `uv run python eval/baselines.py single`, `… probe`, `… sc`, never while a `run_eval.py run` batch is active: the baselines do not take the instance lock, and the worker they load would sit next to a cycle's orchestrator during seeding.
+6. `uv run python eval/run_eval.py score` and `uv run python eval/run_eval.py ablations`
+
+Outputs land in `eval/results/` (gitignored); the tables are copied into
+`docs/experiments.md`.

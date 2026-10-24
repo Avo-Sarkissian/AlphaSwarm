@@ -84,7 +84,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `web/`: `simulation_manager`, `replay_manager`, `guards` (shared route guards), `errors` (the error envelope and handlers), `params` (validated input types), `broadcaster`, `wire` (the versioned `StateFrame` and its mapper), `connection_manager`, and `origin_guard` (the single Origin policy for HTTP and the WebSocket; `web/app.py` also installs `TrustedHostMiddleware`).
   - `web/routes/`: health (component readiness: the Neo4j, Ollama and alias probes are cached 5 s, the stored inference config is read on every request; plus `/api/health/live`), simulation (start/stop/shock), edges, replay, interview, holdings, report, advisory, settings, websocket, agents (per-agent decision history).
 - **Evaluation**
-  - `evaluation.py`: eval records, outcome labels and forecast scoring (pure; `docs/DECISIONS.md#adr-eval-harness`).
+  - `evaluation.py`: eval records, outcome labels, forecast scoring and the pre-registered gate rules (pure; `docs/DECISIONS.md#adr-eval-harness`; protocol in `docs/methodology.md`).
   - `ingestion/fixture.py`: point-in-time `ContextPacket` fixtures for `alphaswarm run --context-fixture`.
   - Repo-root `eval/`: `build_fixtures` and `label_outcomes` (yfinance), `run_eval` (`check`, `budget`, `registration`, seeded `run` through `alphaswarm run`, `score`) and `baselines` (worker-only `single`, `sc` and `probe` through `open_runtime`). They read `eval/events.jsonl` and `eval/headlines/`, read Neo4j only in read transactions, and write the committed `eval/fixtures/` and the gitignored `eval/results/` (labels, baselines, probes, tables).
 

@@ -159,3 +159,25 @@ Arms: `p76-baseline` (`ALPHASWARM_SIMULATION__PERSONA_TRAITS=false`) vs `p76-tra
 Verify: Round 1 twin agreement drops versus the baseline (mean drop > 0 and lower in at least 3 of the 4 seeds). If it does not, `persona_traits` becomes opt-in (default off) and BACKLOG 4.2 stays open with the numbers.
 
 No runs recorded: the measurement needs real inference on the reference machine.
+
+## P7.7 — Accuracy against outcomes
+
+Protocol: `docs/methodology.md`. Reproduce with `uv run python eval/run_eval.py score`
+(reads the tagged cycles, their decisions and manifests from Neo4j).
+
+### Compute budget (gate G-23)
+
+Backend: A, local Ollama/MLX (decided 2026-10 under the owner's delegation): swarm cycles
+use 2 rounds except the Round 3 arms (`rounds3`, `boost_0`, `boost_005`), and the ablations
+use the 5-event subset × 3 seeds. Hours per phase come from
+`uv run python eval/run_eval.py budget --n-events <N>` on the reference machine (recent
+complete cycles' `total_seconds`, `seed_seconds` and `agent_count`); the table is recorded
+here before the first evaluation cycle.
+
+Not run yet.
+
+## P7.8 — Ablations
+
+Protocol: `docs/methodology.md` §9. Reproduce with `uv run python eval/run_eval.py ablations`.
+
+Not run yet.
