@@ -29,6 +29,7 @@ from alphaswarm.manifest import (
     provenance_from_providers,
     sha256_text,
 )
+from alphaswarm.metrics import RoundInput, methodology_metrics
 from alphaswarm.personas import compute_prompt_template_hash, generate_personas
 from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
 from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT
@@ -330,7 +331,7 @@ def _cycle_metrics(
         if decision.signal != SignalType.PARSE_ERROR:
             counts[decision.signal.value] += 1
     metrics: dict[str, float | int | str | bool] = {
-        "metrics_version": 2,
+        "metrics_version": 3,
         "num_rounds": num_rounds,
         "total_seconds": round(total_seconds, 1),
         "final_buy": counts["buy"],
@@ -354,7 +355,8 @@ async def _record_cycle_metrics(
     cycle_id: str,
     outcomes: Sequence[RoundOutcome],
     *,
-    agent_count: int,
+    roster: Sequence[AgentPersona],
+    run_seed: str,
     total_seconds: float,
     git_sha: str | None,
     git_dirty: bool | None,
@@ -364,9 +366,10 @@ async def _record_cycle_metrics(
     metrics = _cycle_metrics(
         outcomes,
         num_rounds=deps.settings.num_rounds,
-        agent_count=agent_count,
+        agent_count=len(roster),
         total_seconds=total_seconds,
     )
+    metrics.update(_derived_cycle_metrics(outcomes, roster, run_seed=run_seed, cycle_id=cycle_id))
     metrics.update(
         _peer_and_provenance_metrics(
             deps.settings.simulation,
@@ -382,6 +385,33 @@ async def _record_cycle_metrics(
         await deps.graph.write_cycle_metrics(cycle_id, metrics)
     except Exception:
         logger.warning("cycle_metrics_write_failed", cycle_id=cycle_id, exc_info=True)
+
+
+def _derived_cycle_metrics(
+    outcomes: Sequence[RoundOutcome],
+    roster: Sequence[AgentPersona],
+    *,
+    run_seed: str,
+    cycle_id: str,
+) -> dict[str, float | int | str | bool]:
+    """Consensus, dispersion and cross-round estimators for the cycle metrics
+    (metrics_version 3, docs/DECISIONS.md#adr-consensus-estimators).
+
+    Derived numbers only: a bug here is logged with its traceback and the run
+    still completes with its other metrics (docs/DECISIONS.md#adr-cycle-metrics).
+    """
+    metrics: dict[str, float | int | str | bool] = {}
+    try:
+        metrics.update(
+            methodology_metrics(
+                [RoundInput(o.round_num, o.decisions, o.exposures) for o in outcomes],
+                roster,
+                run_seed=run_seed,
+            )
+        )
+    except Exception:
+        logger.warning("methodology_metrics_failed", cycle_id=cycle_id, exc_info=True)
+    return metrics
 
 
 def _collect_prompt_hashes(brackets: Sequence[BracketConfig]) -> dict[str, str]:
@@ -524,7 +554,8 @@ async def _run_simulation(
         deps,
         cycle_id,
         outcomes,
-        agent_count=len(roster),
+        roster=roster,
+        run_seed=ctx.run_seed,
         total_seconds=time.monotonic() - sim_start,
         git_sha=git_sha,
         git_dirty=git_dirty,

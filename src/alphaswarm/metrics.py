@@ -12,9 +12,9 @@ import random
 import statistics
 from collections import Counter
 from collections.abc import Collection, Mapping, Sequence
-from typing import Final
+from typing import Final, NamedTuple
 
-from alphaswarm.consensus import dispersion
+from alphaswarm.consensus import consensus_rng, dispersion, estimate_consensus, votes_from_decisions
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType
 
 Pairs = Sequence[tuple[str, AgentDecision]]
@@ -385,3 +385,59 @@ def citation_gini(
     n = len(values)
     weighted = sum((i + 1) * value for i, value in enumerate(values))
     return (2 * weighted) / (n * total) - (n + 1) / n
+
+
+_DECIMALS: Final = 6
+
+
+class RoundInput(NamedTuple):
+    """What the estimators need from one finished round (a RoundOutcome slice)."""
+
+    round_num: int
+    decisions: Sequence[tuple[str, AgentDecision]]  # persona order
+    exposures: Sequence[Sequence[str]]  # aligned with decisions; () when no peers were shown
+
+
+def methodology_metrics(
+    rounds: Sequence[RoundInput],
+    personas: Sequence[AgentPersona],
+    *,
+    run_seed: str,
+    n_boot: int = 1000,
+) -> dict[str, float | int]:
+    """Per-round consensus, dispersion and cross-round estimators as flat metric keys.
+
+    Keys are the metrics_version 3 per-round keys. A key whose estimator is
+    undefined for that round is omitted (docs/DECISIONS.md#adr-consensus-estimators).
+    """
+    out: dict[str, float | int] = {}
+    prev: RoundInput | None = None
+    for current in sorted(rounds, key=lambda r: r.round_num):
+        n = current.round_num
+        votes = votes_from_decisions(current.decisions, personas)
+        estimates = estimate_consensus(votes, rng=consensus_rng(run_seed, n), n_boot=n_boot)
+        for weighting, estimate in estimates.items():
+            out[f"r{n}_net_score_{weighting}"] = round(estimate.score, _DECIMALS)
+        headcount = estimates["headcount"]
+        if headcount.ci_low is not None and headcount.ci_high is not None:
+            out[f"r{n}_net_score_ci_low"] = round(headcount.ci_low, _DECIMALS)
+            out[f"r{n}_net_score_ci_high"] = round(headcount.ci_high, _DECIMALS)
+        spread = dispersion(current.decisions)
+        out[f"r{n}_entropy"] = round(spread.entropy, _DECIMALS)
+        out[f"r{n}_stdev"] = round(spread.stdev, _DECIMALS)
+        out[f"r{n}_polarization"] = round(polarization(current.decisions), _DECIMALS)
+        if prev is not None:
+            for (src, dst), count in transition_matrix(prev.decisions, current.decisions).items():
+                out[f"r{n}_trans_{src}_{dst}"] = count
+            exposures = current.exposures or [()] * len(current.decisions)
+            shown = {agent_id: tuple(peers) for (agent_id, _), peers in zip(current.decisions, exposures, strict=True)}
+            optional = {
+                "conformity_rate": conformity_rate(prev.decisions, current.decisions, shown),
+                "mean_abs_conf_delta": mean_abs_confidence_delta(prev.decisions, current.decisions),
+                "citation_gini": citation_gini(current.decisions, personas),
+            }
+            for key, value in optional.items():
+                if value is not None:
+                    out[f"r{n}_{key}"] = round(value, _DECIMALS)
+        prev = current
+    return out
