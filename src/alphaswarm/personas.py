@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping, Sequence
 from types import MappingProxyType
 from typing import Final
@@ -525,3 +526,25 @@ def persona_to_worker_config(persona: AgentPersona) -> WorkerPersonaConfig:
         risk_profile=persona.risk_profile,
         shared_prompt_chars=persona.shared_prompt_chars,
     )
+
+
+# The agent header "[<Display> <i> | <Display> bracket]". Stripped to see what really
+# differs between agents (docs/DECISIONS.md#adr-swarm-composition-v2).
+PERSONA_HEADER_RE: Final = re.compile(r"^\[[^\]|]+? \| [^\]]+? bracket\]\n?", re.MULTILINE)
+
+
+def persona_body(system_prompt: str) -> str:
+    """The persona prompt without its agent header line."""
+    return PERSONA_HEADER_RE.sub("", system_prompt)
+
+
+def prompt_twin_groups(personas: Sequence[AgentPersona]) -> list[tuple[str, ...]]:
+    """Agent ids grouped by identical header-stripped prompt, in persona order.
+
+    A group of two or more is a set of prompt twins: agents whose prompts differ only
+    in the header.
+    """
+    groups: dict[str, list[str]] = {}
+    for persona in personas:
+        groups.setdefault(persona_body(persona.system_prompt), []).append(persona.id)
+    return [tuple(ids) for ids in groups.values()]
