@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from types import MappingProxyType
 
 import pytest
 
+from alphaswarm.ingestion import tickers as tickers_module
 from alphaswarm.ingestion.tickers import (
     TickerResolver,
     load_ticker_resolver,
@@ -80,9 +82,17 @@ def test_acronyms_are_dropped_without_a_map() -> None:
     assert empty.resolve(_company("ZZZT Holdings", "ZZZT")) == "ZZZT"
 
 
-def test_builtin_aliases_need_the_symbol_in_the_map() -> None:
-    assert TickerResolver.empty().resolve(_company("Google")) == "GOOGL"
-    assert SEC.resolve(_company("Google")) is None  # GOOGL is not in this fictional SEC map
+def test_builtin_aliases_need_the_symbol_in_the_map(monkeypatch: pytest.MonkeyPatch) -> None:
+    # A fictional brand alias stands in for the real ones (fixtures use reserved tickers only).
+    monkeypatch.setattr(tickers_module, "BUILTIN_ALIASES", MappingProxyType({"zeta brand": "QZZX"}))
+    assert TickerResolver.empty().resolve(_company("Zeta Brand")) == "QZZX"
+    assert SEC.resolve(_company("Zeta Brand")) is None  # QZZX-B is skipped, so QZZX is not in this SEC map
+    assert (
+        TickerResolver.from_sec_payload(
+            {"0": {"cik_str": 9, "ticker": "QZZX", "title": "Zeta Brand Holdings Ltd"}}
+        ).resolve(_company("Zeta Brand"))
+        == "QZZX"
+    )
 
 
 def test_resolve_seed_event_replaces_every_ticker() -> None:
