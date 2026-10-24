@@ -107,15 +107,29 @@ describe('frontend structure', () => {
     expect(offenders).toEqual([]);
   });
 
-  it('keeps every app and feature module under the size cap', () => {
-    const offenders = FILES.filter(
-      (file) => /^(app|features)\/.*\.tsx?$/.test(file) && read(file).split('\n').length > MAX_MODULE_LINES,
+  it('keeps the shared viz module independent of app/ and features/', () => {
+    const offenders = FILES.filter((file) => file.startsWith('viz/') && /\.tsx?$/.test(file)).flatMap((file) =>
+      importsOf(file)
+        .filter((target) => target.startsWith('app/') || target.startsWith('features/'))
+        .map((target) => `${file} -> ${target}`),
     );
     expect(offenders).toEqual([]);
   });
 
-  it('has no planning-process tags in app/ and features/', () => {
-    const offenders = FILES.filter((file) => /^(app|features)\/.*\.(ts|tsx)$/.test(file) && PROCESS_TAG.test(read(file)));
+  it('has replaced the old agent graph with src/viz', () => {
+    expect(FILES.filter((file) => /^features\/dashboard\/(Viz\.tsx|vizLayout\.ts|GraphPane\.tsx)$/.test(file))).toEqual([]);
+    expect(FILES).toContain('viz/InfluenceGraph.tsx');
+  });
+
+  it('keeps every app, feature and viz module under the size cap', () => {
+    const offenders = FILES.filter(
+      (file) => /^(app|features|viz)\/.*\.tsx?$/.test(file) && read(file).split('\n').length > MAX_MODULE_LINES,
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it('has no planning-process tags in app/, features/ and viz/', () => {
+    const offenders = FILES.filter((file) => /^(app|features|viz)\/.*\.(ts|tsx)$/.test(file) && PROCESS_TAG.test(read(file)));
     expect(offenders).toEqual([]);
   });
 });

@@ -16,15 +16,16 @@ vi.mock('../../context/EdgesContext', async () => {
 });
 vi.mock('../../features/wire/SignalWire', () => ({ SignalWire: () => null }));
 vi.mock('../../features/dashboard/ModelStatus', () => ({ ModelStatus: () => null }));
-vi.mock('../../features/dashboard/Viz', async () => {
+vi.mock('../../viz/InfluenceGraph', async () => {
   const { createElement, Fragment } = await import('react');
   return {
-    Viz: ({ agents, onAgentClick }: { agents: Array<{ id: string }>; onAgentClick?: (a: { id: string }) => void }) =>
+    DEFAULT_ALL_EDGES: false,
+    InfluenceGraph: ({ agents, onInterview }: { agents: Array<{ id: string }>; onInterview?: (id: string) => void }) =>
       createElement(
         Fragment,
         null,
         agents.map((a) =>
-          createElement('button', { key: a.id, 'data-testid': `node-${a.id}`, onClick: () => onAgentClick?.(a) }, a.id),
+          createElement('button', { key: a.id, type: 'button', 'data-testid': `node-${a.id}`, onClick: () => onInterview?.(a.id) }, a.id),
         ),
       ),
   };
