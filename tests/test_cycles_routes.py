@@ -7,9 +7,11 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from alphaswarm.export import CycleExport
 from alphaswarm.settings import AppSettings
 from alphaswarm.web.app import create_app
 from alphaswarm.web.routes.cycles import router as cycles_router
+from tests.support.export_rows import make_export_rows
 from tests.support.web_app import (
     CYCLE_A,
     CYCLE_UNKNOWN,
@@ -81,3 +83,56 @@ def test_citations_without_neo4j_returns_503(tmp_path: Path) -> None:
 def test_production_app_registers_the_citations_route(web_test_settings: AppSettings) -> None:
     app = create_app(web_test_settings)
     assert "/api/cycles/{cycle_id}/citations" in {getattr(r, "path", None) for r in app.routes}
+
+
+EXPORT_URL = f"/api/cycles/{CYCLE_A}/export"
+
+
+def test_export_returns_the_cycle_under_the_schema_key(tmp_path: Path) -> None:
+    graph = FakeCycleGraph({CYCLE_A: "complete"}, export_rows={CYCLE_A: make_export_rows()})
+    with _client(tmp_path, graph) as client:
+        resp = client.get(EXPORT_URL)
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["schema"] == "alphaswarm.cycle-export/1"
+    assert body["cycle"]["cycle_id"] == CYCLE_A
+    assert CycleExport.model_validate(body).cycle.status == "complete"
+
+
+def test_export_reads_the_report_from_reports_dir(tmp_path: Path) -> None:
+    reports = tmp_path / "reports"
+    reports.mkdir()
+    (reports / f"{CYCLE_A}_report.md").write_text("# Swarm report\n", encoding="utf-8")
+    graph = FakeCycleGraph({CYCLE_A: "complete"}, export_rows={CYCLE_A: make_export_rows()})
+    with _client(tmp_path, graph) as client:
+        resp = client.get(EXPORT_URL)
+    assert resp.json()["report_markdown"] == "# Swarm report\n"
+
+
+def test_export_of_a_running_cycle_is_422(tmp_path: Path) -> None:
+    graph = FakeCycleGraph({CYCLE_A: "running"}, export_rows={CYCLE_A: make_export_rows()})
+    with _client(tmp_path, graph) as client:
+        resp = client.get(EXPORT_URL)
+    assert resp.status_code == 422
+    assert resp.json()["detail"]["error"] == "cycle_not_ready"
+    assert graph.export_calls == []
+
+
+def test_export_of_an_unknown_cycle_is_404(tmp_path: Path) -> None:
+    graph = FakeCycleGraph({CYCLE_A: "complete"})
+    with _client(tmp_path, graph) as client:
+        resp = client.get(f"/api/cycles/{CYCLE_UNKNOWN}/export")
+    assert resp.status_code == 404
+    assert resp.json()["detail"]["error"] == "cycle_not_found"
+
+
+def test_export_without_neo4j_returns_503(tmp_path: Path) -> None:
+    with _client(tmp_path, None) as client:
+        resp = client.get(EXPORT_URL)
+    assert resp.status_code == 503
+    assert resp.json()["detail"]["error"] == "graph_unavailable"
+
+
+def test_production_app_registers_the_export_route(web_test_settings: AppSettings) -> None:
+    app = create_app(web_test_settings)
+    assert "/api/cycles/{cycle_id}/export" in {getattr(r, "path", None) for r in app.routes}

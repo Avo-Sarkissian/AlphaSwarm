@@ -5,6 +5,8 @@ with the signal each cited agent held in round N-1, which is what the citing
 agent saw (docs/DECISIONS.md#adr-neo4j-schema). Round 1 and rounds past the
 cycle's depth return an empty list. Running cycles are readable, so the live
 graph can draw a round as soon as its edges exist.
+
+GET /api/cycles/{cycle_id}/export returns the cycle as alphaswarm.cycle-export/1.
 """
 
 from __future__ import annotations
@@ -15,6 +17,7 @@ import structlog
 from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
+from alphaswarm.export import CycleExport, export_cycle
 from alphaswarm.web.errors import ApiError
 from alphaswarm.web.guards import require_graph
 from alphaswarm.web.params import CycleId
@@ -64,3 +67,18 @@ async def round_citations(
         round_num=round_num,
         citations=[RoundCitationItem.model_validate(r) for r in rows],
     )
+
+
+@router.get("/cycles/{cycle_id}/export", response_model=CycleExport)
+async def cycle_export(cycle_id: CycleId, request: Request) -> CycleExport:
+    """The cycle as alphaswarm.cycle-export/1 (docs/DECISIONS.md#adr-cycle-export).
+
+    404 cycle_not_found, 422 cycle_not_ready while the cycle is still running,
+    422 validation_error for a malformed id, 503 graph_unavailable.
+    """
+    app_state = request.app.state.app_state
+    graph = require_graph(app_state)
+    settings = app_state.settings
+    export = await export_cycle(graph, cycle_id, reports_dir=settings.resolve_path(settings.reports_dir))
+    log.info("cycle_export_served", cycle_id=cycle_id, rounds=len(export.rounds))
+    return export
