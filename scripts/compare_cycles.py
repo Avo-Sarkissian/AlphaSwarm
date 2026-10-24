@@ -47,6 +47,22 @@ METRIC_COLS = [
     ("final_hold", "hold"),
 ]
 
+# Final-round methodology estimators (metrics_version 3,
+# docs/DECISIONS.md#adr-consensus-estimators). Missing keys print "-".
+METHODOLOGY_COLS: list[tuple[str, str]] = [
+    ("net_score_headcount", "net"),
+    ("net_score_ci_low", "ci_lo"),
+    ("net_score_ci_high", "ci_hi"),
+    ("net_score_reach", "net_reach"),
+    ("net_score_bracket_equal", "net_breq"),
+    ("entropy", "entropy"),
+    ("polarization", "polar"),
+    ("conformity_rate", "conform"),
+    ("mean_abs_conf_delta", "d_conf"),
+    ("citation_gini", "gini"),
+    ("citation_validity_rate", "valid"),
+]
+
 DEFAULT_GROUP_METRICS: tuple[str, ...] = (
     "total_seconds",
     "r2_flips",
@@ -174,6 +190,24 @@ def render(rows: Sequence[Sequence[str]], *, markdown: bool) -> str:
     )
 
 
+def methodology_table(cycles: Sequence[Mapping[str, Any]]) -> list[list[str]]:
+    """Header plus one row per cycle with its final round's estimators."""
+    rows = [["cycle", "round", *(label for _, label in METHODOLOGY_COLS)]]
+    for cycle in cycles:
+        final = int(cycle.get("final_round") or cycle.get("num_rounds") or 3)
+        line = [str(cycle.get("cycle_id", ""))[:8], str(final)]
+        for key, _label in METHODOLOGY_COLS:
+            value = cycle.get(f"r{final}_{key}")
+            if value is None:
+                line.append(MISSING)
+            elif key.startswith("net_score"):
+                line.append(f"{float(value):+.3f}")
+            else:
+                line.append(f"{float(value):.3f}")
+        rows.append(line)
+    return rows
+
+
 def fetch_cycles(session: Any, *, limit: int, tag: str | None) -> list[dict[str, Any]]:
     """Newest complete cycles as records ``{"c": <Cycle properties>}``."""
     return list(session.run(CYCLES_QUERY, limit=limit, tag=tag).data())
@@ -223,6 +257,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--markdown", action="store_true", help="Print --group-by as markdown")
     parser.add_argument("--n-boot", type=int, default=2000, help="Bootstrap resamples per interval")
     parser.add_argument("--seed", type=int, default=7, help="Bootstrap RNG seed (reproducible intervals)")
+    parser.add_argument(
+        "--methodology",
+        action="store_true",
+        help="Also print the final round's consensus/dispersion estimators (metrics_version 3)",
+    )
     args = parser.parse_args(argv)
 
     settings = AppSettings()
@@ -252,9 +291,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             n_boot=args.n_boot,
         )
         print(render(group_table(summaries, fields, metrics), markdown=args.markdown))
-        return 0
-
-    _print_cycle_table(rows)
+    else:
+        _print_cycle_table(rows)
+    if args.methodology:
+        print()
+        print(render(methodology_table([row["c"] for row in rows]), markdown=args.markdown))
     return 0
 
 

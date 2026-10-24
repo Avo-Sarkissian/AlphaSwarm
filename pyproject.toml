@@ -123,9 +123,11 @@ root_package = "alphaswarm"
 name = "Holdings isolation — only advisory, services.advisory and web.routes.holdings may import alphaswarm.holdings"
 type = "forbidden"
 source_modules = [
+    "alphaswarm.advisory.evidence",
     "alphaswarm.app",
     "alphaswarm.batch_dispatcher",
     "alphaswarm.cli",
+    "alphaswarm.consensus",
     "alphaswarm.context_formatter",
     "alphaswarm.data_audit",
     "alphaswarm.doctor",
@@ -162,6 +164,7 @@ source_modules = [
     "alphaswarm.ingestion.types",
     "alphaswarm.ingestion.yfinance_provider",
     "alphaswarm.ingestion.rss_provider",
+    "alphaswarm.ingestion.tickers",
     "alphaswarm.instance_lock",
     "alphaswarm.interview",
     "alphaswarm.logging",

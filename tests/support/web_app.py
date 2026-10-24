@@ -148,6 +148,7 @@ def route_test_settings(tmp_path: Path, **overrides: Any) -> AppSettings:
         "inference_config_path": tmp_path / "inference.json",
         "holdings_csv_path": tmp_path / "holdings.csv",
         "sector_map_path": tmp_path / "sector_map.json",
+        "ticker_map_path": tmp_path / "sec_tickers.json",
     }
     values.update(overrides)
     return AppSettings(_env_file=None, **values)  # type: ignore[call-arg]

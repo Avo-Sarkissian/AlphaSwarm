@@ -34,6 +34,7 @@ def test_only_the_hermetic_variables_are_set(hermetic_env: Path) -> None:
         "ALPHASWARM_INFERENCE_CONFIG_PATH",
         "ALPHASWARM_INSTANCE_LOCK",
         "ALPHASWARM_SECTOR_MAP_PATH",
+        "ALPHASWARM_TICKER_MAP_PATH",
     ]
     assert os.environ["ALPHASWARM_INFERENCE_CONFIG_PATH"] == str(hermetic_env)
 
@@ -111,3 +112,9 @@ def test_the_sector_map_path_never_points_at_real_data(hermetic_env: Path) -> No
     sector_map_path = AppSettings().sector_map_path
     assert sector_map_path.parent == hermetic_env.parent
     assert not sector_map_path.exists()
+
+
+def test_the_ticker_map_path_never_points_at_real_data(hermetic_env: Path) -> None:
+    path = AppSettings().ticker_map_path
+    assert path.parent == hermetic_env.parent
+    assert not path.exists()

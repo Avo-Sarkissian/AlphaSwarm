@@ -64,7 +64,7 @@ def _stored_report() -> AdvisoryReport:
                 consensus_signal="BUY",
                 confidence=0.7,
                 rationale_summary="Fictional summary.",
-                position_exposure=Decimal("1234.56"),
+                cost_basis_exposure=Decimal("1234.56"),
             ),
         ),
         total_holdings=1,
@@ -503,6 +503,17 @@ def test_get_legacy_advisory_file_is_200(tmp_path: Path) -> None:
     body = response.json()
     assert body["items"][0]["source"] == "swarm"
     assert body["stats"] is None and body["holdings_as_of"] is None
+    # The legacy key maps onto cost_basis_exposure; swarm fields take their defaults
+    # (docs/DECISIONS.md#adr-grounded-advisory).
+    item = body["items"][0]
+    assert item["cost_basis_exposure"] == "1234.56" and "position_exposure" not in item
+    assert (item["swarm_support"], item["swarm_signal"], item["llm_signal"], item["divergent"]) == (
+        0,
+        None,
+        None,
+        False,
+    )
+    assert item["evidence_agent_ids"] == []
 
 
 @pytest.mark.parametrize("content", _unreadable_contents(), ids=["older-shape", "not-json", "extra-field"])

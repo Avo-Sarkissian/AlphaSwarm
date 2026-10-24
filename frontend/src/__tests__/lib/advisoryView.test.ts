@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { AdvisoryItemPayload, AdvisoryReportPayload } from '../../api/advisory';
-import { isPlaceholder, overviewStats, recLabel } from '../../lib/advisoryView';
+import {
+  costBasisOf,
+  evidenceLabel,
+  holdingView,
+  isPlaceholder,
+  overviewStats,
+  recLabel,
+  sentimentWidths,
+} from '../../lib/advisoryView';
 
 const item = (
   ticker: string,
@@ -12,7 +20,7 @@ const item = (
   consensus_signal: signal,
   confidence,
   rationale_summary: 'x',
-  position_exposure: '1234.56',
+  cost_basis_exposure: '1234.56',
   source,
 });
 
@@ -84,5 +92,47 @@ describe('row helpers', () => {
       'CONSIDER TRIMMING',
       'NO ACTION',
     ]);
+  });
+});
+
+describe('holdingView', () => {
+  const grounded: AdvisoryItemPayload = {
+    ticker: 'ZZZT', consensus_signal: 'BUY', confidence: 0.62, rationale_summary: 'LLM view',
+    cost_basis_exposure: '1234.56', source: 'swarm', swarm_signal: 'BUY', swarm_support: 4,
+    swarm_sentiment: 0.35, evidence_agent_ids: ['quants_01', 'quants_02', 'quants_03', 'quants_04'],
+    llm_signal: 'SELL', divergent: true,
+  };
+
+  it('maps the swarm fields and the cost-basis share', () => {
+    const view = holdingView(grounded, 2469.12);
+    expect(view.costBasis).toBeCloseTo(1234.56);
+    expect(view.costBasisPct).toBeCloseTo(50);
+    expect([view.swarmSignal, view.llmSignal, view.divergent]).toEqual(['BUY', 'SELL', true]);
+    expect(view.insufficientEvidence).toBe(false);
+    expect(evidenceLabel(view)).toBe('4 agents · swarm BUY');
+  });
+
+  it('flags thin evidence without a swarm signal', () => {
+    const view = holdingView({ ...grounded, swarm_signal: null, swarm_support: 2, divergent: false }, 0);
+    expect(view.insufficientEvidence).toBe(true);
+    expect(view.costBasisPct).toBe(0);
+    expect(evidenceLabel(view)).toBe('2 agents · insufficient swarm evidence');
+  });
+
+  it('reads a legacy file that has position_exposure and no swarm fields', () => {
+    const legacy: AdvisoryItemPayload = {
+      ticker: 'QQQX', consensus_signal: 'HOLD', confidence: 0.3, rationale_summary: 'x', position_exposure: '617.28',
+    };
+    const view = holdingView(legacy, 617.28);
+    expect(costBasisOf(legacy)).toBeCloseTo(617.28);
+    expect([view.swarmSupport, view.swarmSignal, view.llmSignal, view.divergent]).toEqual([0, null, null, false]);
+    expect(view.evidenceAgentIds).toEqual([]);
+    expect(evidenceLabel(view)).toBe('no swarm evidence');
+  });
+
+  it('turns sentiment into bar widths', () => {
+    expect(sentimentWidths(null)).toEqual({ neg: '0%', pos: '0%' });
+    expect(sentimentWidths(0.5)).toEqual({ neg: '0%', pos: '25%' });
+    expect(sentimentWidths(-1)).toEqual({ neg: '50%', pos: '0%' });
   });
 });

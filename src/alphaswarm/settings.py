@@ -322,6 +322,12 @@ class AppSettings(BaseSettings):
     # Env ALPHASWARM_SECTOR_MAP_PATH.
     sector_map_path: Path = Path("data/sector_map.local.json")
 
+    # Cached SEC company ticker map used to validate seed-entity tickers (public data,
+    # gitignored; fetch with scripts/fetch_ticker_map.py). Relative paths resolve
+    # against PROJECT_ROOT. A missing file is fine: the resolver falls back to its
+    # no-map rule. Env ALPHASWARM_TICKER_MAP_PATH (docs/DECISIONS.md#adr-ticker-resolution).
+    ticker_map_path: Path = Path("data/sec_tickers.json")
+
     # Runtime inference config (provider choice, cloud API keys), written by the
     # Settings UI. Injectable so tests point it at a temp file and never read the
     # operator's real one (docs/DECISIONS.md#adr-tests-scoped-cleanup). Env var:

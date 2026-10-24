@@ -54,3 +54,68 @@ export function overviewStats(report: AdvisoryReportPayload): OverviewStats {
     placeholderCount: items.length - conviction.length,
   };
 }
+
+// Per-holding view of the grounded advisory (docs/DECISIONS.md#adr-grounded-advisory).
+export interface HoldingView {
+  ticker: string;
+  signal: AdvisorySignal;
+  recTone: 'buy' | 'sell' | 'hold';
+  rec: string;
+  rationale: string;
+  costBasis: number;
+  costBasisPct: number;
+  swarmSupport: number;
+  swarmSignal: AdvisorySignal | null;
+  swarmSentiment: number | null;
+  llmSignal: AdvisorySignal | null;
+  divergent: boolean;
+  evidenceAgentIds: readonly string[];
+  insufficientEvidence: boolean;
+  placeholder: boolean;
+  risk: string | null;
+  upside: string | null;
+}
+
+export function costBasisOf(item: AdvisoryItemPayload): number {
+  const value = Number(item.cost_basis_exposure ?? item.position_exposure ?? 0);
+  return Number.isFinite(value) ? value : 0;
+}
+
+export function holdingView(item: AdvisoryItemPayload, totalCostBasis: number): HoldingView {
+  const costBasis = costBasisOf(item);
+  const swarmSupport = item.swarm_support ?? 0;
+  const swarmSignal = item.swarm_signal ?? null;
+  return {
+    ticker: item.ticker,
+    signal: item.consensus_signal,
+    recTone: item.consensus_signal.toLowerCase() as 'buy' | 'sell' | 'hold',
+    rec: recLabel(item.consensus_signal),
+    rationale: item.rationale_summary,
+    costBasis,
+    costBasisPct: totalCostBasis > 0 ? (costBasis / totalCostBasis) * 100 : 0,
+    swarmSupport,
+    swarmSignal,
+    swarmSentiment: item.swarm_sentiment ?? null,
+    llmSignal: item.llm_signal ?? null,
+    divergent: item.divergent ?? false,
+    evidenceAgentIds: item.evidence_agent_ids ?? [],
+    insufficientEvidence: swarmSupport > 0 && swarmSignal === null,
+    placeholder: isPlaceholder(item),
+    risk: item.risk ?? null,
+    upside: item.upside ?? null,
+  };
+}
+
+export function evidenceLabel(view: HoldingView): string {
+  if (view.swarmSignal !== null) return `${view.swarmSupport} agents · swarm ${view.swarmSignal}`;
+  if (view.swarmSupport > 0) {
+    return `${view.swarmSupport} agent${view.swarmSupport === 1 ? '' : 's'} · insufficient swarm evidence`;
+  }
+  return 'no swarm evidence';
+}
+
+export function sentimentWidths(sentiment: number | null): { neg: string; pos: string } {
+  if (sentiment === null) return { neg: '0%', pos: '0%' };
+  const clamped = Math.max(-1, Math.min(1, sentiment));
+  return { neg: `${Math.max(0, -clamped) * 50}%`, pos: `${Math.max(0, clamped) * 50}%` };
+}

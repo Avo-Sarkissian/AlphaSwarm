@@ -1,0 +1,1263 @@
+[
+  {
+    "agent_id": "algos_01",
+    "bracket": "algos",
+    "confidence": 0.521,
+    "entities": [],
+    "reach": 0.45,
+    "sentiment": -0.09,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "algos_02",
+    "bracket": "algos",
+    "confidence": 0.6185,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      }
+    ],
+    "reach": 0.45,
+    "sentiment": 0.59,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "algos_03",
+    "bracket": "algos",
+    "confidence": 0.586,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.45,
+    "sentiment": 0.69,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "algos_04",
+    "bracket": "algos",
+    "confidence": 0.5405,
+    "entities": [],
+    "reach": 0.45,
+    "sentiment": -0.75,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "algos_05",
+    "bracket": "algos",
+    "confidence": 0.9435,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.45,
+    "sentiment": 0.07,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "algos_06",
+    "bracket": "algos",
+    "confidence": 0.365,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.45,
+    "sentiment": 0.2,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "algos_07",
+    "bracket": "algos",
+    "confidence": 0.573,
+    "entities": [],
+    "reach": 0.45,
+    "sentiment": -0.72,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "algos_08",
+    "bracket": "algos",
+    "confidence": 0.469,
+    "entities": [],
+    "reach": 0.45,
+    "sentiment": 0.03,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "allocators_01",
+    "bracket": "allocators",
+    "confidence": 0.0,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.0,
+    "signal": "parse_error"
+  },
+  {
+    "agent_id": "allocators_02",
+    "bracket": "allocators",
+    "confidence": 0.0,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.0,
+    "signal": "parse_error"
+  },
+  {
+    "agent_id": "allocators_03",
+    "bracket": "allocators",
+    "confidence": 0.0,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.0,
+    "signal": "parse_error"
+  },
+  {
+    "agent_id": "allocators_04",
+    "bracket": "allocators",
+    "confidence": 0.0,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.0,
+    "signal": "parse_error"
+  },
+  {
+    "agent_id": "allocators_05",
+    "bracket": "allocators",
+    "confidence": 0.0,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.0,
+    "signal": "parse_error"
+  },
+  {
+    "agent_id": "degens_01",
+    "bracket": "degens",
+    "confidence": 0.378,
+    "entities": [],
+    "reach": 0.5,
+    "sentiment": 0.32,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "degens_02",
+    "bracket": "degens",
+    "confidence": 0.6835,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.5,
+    "sentiment": -0.77,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "degens_03",
+    "bracket": "degens",
+    "confidence": 0.456,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.5,
+    "sentiment": -0.22,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "degens_04",
+    "bracket": "degens",
+    "confidence": 0.7615,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      }
+    ],
+    "reach": 0.5,
+    "sentiment": 0.03,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "degens_05",
+    "bracket": "degens",
+    "confidence": 0.82,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.5,
+    "sentiment": 0.17,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "degens_06",
+    "bracket": "degens",
+    "confidence": 0.547,
+    "entities": [],
+    "reach": 0.5,
+    "sentiment": -0.75,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "degens_07",
+    "bracket": "degens",
+    "confidence": 0.8005,
+    "entities": [],
+    "reach": 0.5,
+    "sentiment": -0.02,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "degens_08",
+    "bracket": "degens",
+    "confidence": 0.495,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.5,
+    "sentiment": 0.38,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "degens_09",
+    "bracket": "degens",
+    "confidence": 0.8135,
+    "entities": [],
+    "reach": 0.5,
+    "sentiment": -0.67,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "degens_10",
+    "bracket": "degens",
+    "confidence": 0.3975,
+    "entities": [],
+    "reach": 0.5,
+    "sentiment": -0.06,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "degens_11",
+    "bracket": "degens",
+    "confidence": 0.0,
+    "entities": [],
+    "reach": 0.5,
+    "sentiment": 0.0,
+    "signal": "parse_error"
+  },
+  {
+    "agent_id": "degens_12",
+    "bracket": "degens",
+    "confidence": 0.9045,
+    "entities": [],
+    "reach": 0.5,
+    "sentiment": -0.19,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "degens_13",
+    "bracket": "degens",
+    "confidence": 0.6705,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.5,
+    "sentiment": 0.03,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "degens_14",
+    "bracket": "degens",
+    "confidence": 0.729,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.5,
+    "sentiment": 0.16,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "degens_15",
+    "bracket": "degens",
+    "confidence": 0.794,
+    "entities": [],
+    "reach": 0.5,
+    "sentiment": -0.46,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "event_driven_01",
+    "bracket": "event_driven",
+    "confidence": 0.8785,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": -0.6,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "event_driven_02",
+    "bracket": "event_driven",
+    "confidence": 0.443,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": -0.09,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "event_driven_03",
+    "bracket": "event_driven",
+    "confidence": 0.3845,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": 0.03,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "event_driven_04",
+    "bracket": "event_driven",
+    "confidence": 0.391,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.84,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "event_driven_05",
+    "bracket": "event_driven",
+    "confidence": 0.677,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      },
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": -0.39,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "event_driven_06",
+    "bracket": "event_driven",
+    "confidence": 0.4105,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": -0.05,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "event_driven_07",
+    "bracket": "event_driven",
+    "confidence": 0.5145,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.61,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "event_driven_08",
+    "bracket": "event_driven",
+    "confidence": 0.911,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": -0.18,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "event_driven_09",
+    "bracket": "event_driven",
+    "confidence": 0.5795,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": -0.03,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "event_driven_10",
+    "bracket": "event_driven",
+    "confidence": 0.5275,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": 0.52,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "institutions_01",
+    "bracket": "institutions",
+    "confidence": 0.7355,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": 0.08,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "institutions_02",
+    "bracket": "institutions",
+    "confidence": 0.9305,
+    "entities": [],
+    "reach": 0.65,
+    "sentiment": 0.62,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "institutions_03",
+    "bracket": "institutions",
+    "confidence": 0.872,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": 0.44,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "institutions_04",
+    "bracket": "institutions",
+    "confidence": 0.56,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": -0.68,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "institutions_05",
+    "bracket": "institutions",
+    "confidence": 0.846,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": -0.02,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "institutions_06",
+    "bracket": "institutions",
+    "confidence": 0.508,
+    "entities": [],
+    "reach": 0.65,
+    "sentiment": 0.17,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "institutions_07",
+    "bracket": "institutions",
+    "confidence": 0.5015,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": -0.68,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "institutions_08",
+    "bracket": "institutions",
+    "confidence": 0.3,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": -0.02,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "institutions_09",
+    "bracket": "institutions",
+    "confidence": 0.755,
+    "entities": [],
+    "reach": 0.65,
+    "sentiment": 0.49,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "institutions_10",
+    "bracket": "institutions",
+    "confidence": 0.69,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": -0.4,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "institutions_11",
+    "bracket": "institutions",
+    "confidence": 0.7875,
+    "entities": [],
+    "reach": 0.65,
+    "sentiment": 0.02,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "institutions_12",
+    "bracket": "institutions",
+    "confidence": 0.4495,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": 0.5,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "institutions_13",
+    "bracket": "institutions",
+    "confidence": 0.43,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": -0.23,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "institutions_14",
+    "bracket": "institutions",
+    "confidence": 0.6055,
+    "entities": [],
+    "reach": 0.65,
+    "sentiment": 0.02,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "institutions_15",
+    "bracket": "institutions",
+    "confidence": 0.3455,
+    "entities": [],
+    "reach": 0.65,
+    "sentiment": 0.55,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "institutions_16",
+    "bracket": "institutions",
+    "confidence": 0.937,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": -0.4,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "institutions_17",
+    "bracket": "institutions",
+    "confidence": 0.6445,
+    "entities": [],
+    "reach": 0.65,
+    "sentiment": 0.05,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "institutions_18",
+    "bracket": "institutions",
+    "confidence": 0.9175,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.65,
+    "sentiment": 0.58,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "macro_01",
+    "bracket": "macro",
+    "confidence": 0.7745,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": 0.5,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "macro_02",
+    "bracket": "macro",
+    "confidence": 0.4235,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": -0.37,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "macro_03",
+    "bracket": "macro",
+    "confidence": 0.3325,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": -0.19,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "macro_04",
+    "bracket": "macro",
+    "confidence": 0.599,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": -0.04,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "macro_05",
+    "bracket": "macro",
+    "confidence": 0.3065,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": 0.69,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "macro_06",
+    "bracket": "macro",
+    "confidence": 0.612,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": -0.66,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "macro_07",
+    "bracket": "macro",
+    "confidence": 0.8655,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": -0.05,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "narrators_01",
+    "bracket": "narrators",
+    "confidence": 0.8395,
+    "entities": [],
+    "reach": 0.7,
+    "sentiment": -0.23,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "narrators_02",
+    "bracket": "narrators",
+    "confidence": 0.742,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.7,
+    "sentiment": 0.04,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "narrators_03",
+    "bracket": "narrators",
+    "confidence": 0.7485,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      },
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.7,
+    "sentiment": 0.04,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "narrators_04",
+    "bracket": "narrators",
+    "confidence": 0.898,
+    "entities": [],
+    "reach": 0.7,
+    "sentiment": 0.72,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "narrators_05",
+    "bracket": "narrators",
+    "confidence": 0.4755,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.7,
+    "sentiment": -0.23,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "narrators_06",
+    "bracket": "narrators",
+    "confidence": 0.924,
+    "entities": [],
+    "reach": 0.7,
+    "sentiment": -0.05,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "narrators_07",
+    "bracket": "narrators",
+    "confidence": 0.8265,
+    "entities": [],
+    "reach": 0.7,
+    "sentiment": 0.41,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "narrators_08",
+    "bracket": "narrators",
+    "confidence": 0.4625,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.7,
+    "sentiment": -0.28,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "quants_01",
+    "bracket": "quants",
+    "confidence": 0.6575,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": -0.09,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "quants_02",
+    "bracket": "quants",
+    "confidence": 0.5665,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": 0.81,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "quants_03",
+    "bracket": "quants",
+    "confidence": 0.417,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": 0.33,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "quants_04",
+    "bracket": "quants",
+    "confidence": 0.6965,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": -0.76,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "quants_05",
+    "bracket": "quants",
+    "confidence": 0.4365,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": -0.09,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "quants_06",
+    "bracket": "quants",
+    "confidence": 0.885,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": 0.37,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "quants_07",
+    "bracket": "quants",
+    "confidence": 0.859,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": -0.38,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "quants_08",
+    "bracket": "quants",
+    "confidence": 0.534,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": 0.08,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "quants_09",
+    "bracket": "quants",
+    "confidence": 0.8525,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": 0.32,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "quants_10",
+    "bracket": "quants",
+    "confidence": 0.8915,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": -0.28,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "quants_11",
+    "bracket": "quants",
+    "confidence": 0.7095,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.55,
+    "sentiment": 0.01,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "quants_12",
+    "bracket": "quants",
+    "confidence": 0.625,
+    "entities": [],
+    "reach": 0.55,
+    "sentiment": 0.2,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "sell_side_01",
+    "bracket": "sell_side",
+    "confidence": 0.7225,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.75,
+    "sentiment": 0.84,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "sell_side_02",
+    "bracket": "sell_side",
+    "confidence": 0.807,
+    "entities": [],
+    "reach": 0.75,
+    "sentiment": -0.75,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "sell_side_03",
+    "bracket": "sell_side",
+    "confidence": 0.352,
+    "entities": [],
+    "reach": 0.75,
+    "sentiment": -0.56,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "sell_side_04",
+    "bracket": "sell_side",
+    "confidence": 0.664,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.75,
+    "sentiment": 0.1,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "sell_side_05",
+    "bracket": "sell_side",
+    "confidence": 0.651,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.75,
+    "sentiment": 0.79,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "sell_side_06",
+    "bracket": "sell_side",
+    "confidence": 0.404,
+    "entities": [],
+    "reach": 0.75,
+    "sentiment": -0.62,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "sell_side_07",
+    "bracket": "sell_side",
+    "confidence": 0.3585,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.75,
+    "sentiment": 0.01,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "sell_side_08",
+    "bracket": "sell_side",
+    "confidence": 0.716,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      }
+    ],
+    "reach": 0.75,
+    "sentiment": 0.67,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "sell_side_09",
+    "bracket": "sell_side",
+    "confidence": 0.313,
+    "entities": [],
+    "reach": 0.75,
+    "sentiment": -0.43,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "sell_side_10",
+    "bracket": "sell_side",
+    "confidence": 0.6315,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      },
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.75,
+    "sentiment": 0.04,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "shorts_01",
+    "bracket": "shorts",
+    "confidence": 0.638,
+    "entities": [
+      {
+        "name": "Industrial Automation",
+        "ticker": null,
+        "type": "sector"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": -0.58,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "shorts_02",
+    "bracket": "shorts",
+    "confidence": 0.339,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.02,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "shorts_03",
+    "bracket": "shorts",
+    "confidence": 0.703,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": 0.09,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "shorts_04",
+    "bracket": "shorts",
+    "confidence": 0.3195,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.26,
+    "signal": "buy"
+  },
+  {
+    "agent_id": "shorts_05",
+    "bracket": "shorts",
+    "confidence": 0.833,
+    "entities": [
+      {
+        "name": "QQQX Robotics",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": -0.25,
+    "signal": "sell"
+  },
+  {
+    "agent_id": "shorts_06",
+    "bracket": "shorts",
+    "confidence": 0.482,
+    "entities": [
+      {
+        "name": "ZZZT Holdings",
+        "ticker": null,
+        "type": "company"
+      }
+    ],
+    "reach": 0.6,
+    "sentiment": -0.08,
+    "signal": "hold"
+  },
+  {
+    "agent_id": "shorts_07",
+    "bracket": "shorts",
+    "confidence": 0.5925,
+    "entities": [],
+    "reach": 0.6,
+    "sentiment": 0.85,
+    "signal": "buy"
+  }
+]

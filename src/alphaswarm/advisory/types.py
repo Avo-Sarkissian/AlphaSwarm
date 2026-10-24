@@ -15,7 +15,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Final, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from alphaswarm.types import normalize_unit_interval
 
@@ -84,11 +84,14 @@ class AdvisoryLLMOutput(BaseModel):
 
 
 class AdvisoryItem(BaseModel):
-    """One holding in the assembled advisory (docs/DECISIONS.md#p41-d-06).
+    """One holding in the assembled advisory (docs/DECISIONS.md#adr-grounded-advisory).
 
-    ``source`` is ``"swarm"`` for a conviction item the orchestrator wrote and
-    ``"placeholder"`` for the HOLD@0.30 padding the engine adds
-    (docs/DECISIONS.md#sweep-b-7).
+    ``consensus_signal`` is the swarm's signal when at least MIN_SWARM_SUPPORT
+    final-round agents referenced the company, otherwise the orchestrator's;
+    ``llm_signal`` always keeps the orchestrator's own reading and ``divergent``
+    flags a disagreement. ``source`` is ``"placeholder"`` for the HOLD@0.30 padding
+    (docs/DECISIONS.md#sweep-b-7). ``cost_basis_exposure`` is aggregated cost
+    basis, not market value.
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")
@@ -97,10 +100,25 @@ class AdvisoryItem(BaseModel):
     consensus_signal: Signal
     confidence: float = Field(ge=0.0, le=1.0)
     rationale_summary: str
-    position_exposure: Decimal
+    cost_basis_exposure: Decimal
     source: ItemSource = "swarm"
     risk: str | None = None
     upside: str | None = None
+    swarm_signal: Signal | None = None
+    swarm_support: int = Field(default=0, ge=0)
+    swarm_sentiment: float | None = Field(default=None, ge=-1.0, le=1.0)
+    evidence_agent_ids: tuple[str, ...] = ()
+    llm_signal: Signal | None = None
+    divergent: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _legacy_exposure_key(cls, data: object) -> object:
+        """Advisory files written before the rename call the field position_exposure."""
+        if isinstance(data, dict) and "position_exposure" in data and "cost_basis_exposure" not in data:
+            data = dict(data)
+            data["cost_basis_exposure"] = data.pop("position_exposure")
+        return data
 
 
 class AdvisoryStats(BaseModel):
@@ -116,6 +134,8 @@ class AdvisoryStats(BaseModel):
     avg_confidence: float | None
     dominant_signal: Signal | None
     dominant_share: float | None
+    divergent_count: int = Field(default=0, ge=0)  # swarm and orchestrator disagree
+    evidence_count: int = Field(default=0, ge=0)  # items whose signal came from swarm evidence
 
     @classmethod
     def from_items(cls, items: Sequence[AdvisoryItem]) -> AdvisoryStats:
@@ -133,6 +153,8 @@ class AdvisoryStats(BaseModel):
             avg_confidence=(sum(item.confidence for item in conviction) / len(conviction) if conviction else None),
             dominant_signal=dominant,
             dominant_share=counts[dominant] / len(conviction) if dominant is not None else None,
+            divergent_count=sum(1 for item in items if item.divergent),
+            evidence_count=sum(1 for item in items if item.swarm_signal is not None),
         )
 
 

@@ -58,6 +58,7 @@ from alphaswarm.inference.factory import BuiltProviders
 from tests.support.web_app import CYCLE_A, FakeCycleGraph, block_service_jobs, make_route_app, route_test_settings
 
 from .conftest import (
+    CANARY_EVIDENCE_AGENT_IDS,
     SENTINEL_ACCT,
     SENTINEL_COST_BASIS,
     SENTINEL_QTY,
@@ -190,6 +191,37 @@ async def test_sentinels_do_not_appear_in_rendered_prompts(
         if sentinel == SENTINEL_TICKER:
             continue
         assert sentinel not in joined, f"sentinel representation {sentinel!r} leaked into rendered prompts"
+
+
+async def test_swarm_evidence_reaches_the_report_but_no_prompt_or_log(
+    sentinel_portfolio: PortfolioSnapshot,
+    capture_logs: Any,
+    capture_neo4j_writes: list[str],
+    capture_jinja_renders: list[str],
+) -> None:
+    """Per-holding swarm evidence is joined after the LLM call: it is in the advisory
+    the route serves, and in no prompt or log (docs/DECISIONS.md#adr-grounded-advisory)."""
+    report = await synthesize(
+        cycle_id="canary_cycle",
+        portfolio=sentinel_portfolio,
+        graph_manager=CanaryFakeGraphManager(neo4j_sink=capture_neo4j_writes),  # type: ignore[arg-type]
+        provider=CanaryFakeOllamaClient(  # type: ignore[arg-type]
+            prompt_sink=capture_jinja_renders, canned_content=canary_valid_advisory_json()
+        ),
+    )
+    item = next(i for i in report.items if i.ticker == SENTINEL_TICKER)
+    # Positive control: the evidence join ran.
+    assert (item.swarm_support, item.swarm_signal) == (3, "BUY")
+    assert item.evidence_agent_ids == CANARY_EVIDENCE_AGENT_IDS
+    prompts = "\n".join(capture_jinja_renders)
+    logs = capture_logs.getvalue()
+    for agent_id in CANARY_EVIDENCE_AGENT_IDS:
+        assert agent_id not in prompts, f"evidence agent id {agent_id!r} leaked into the prompt"
+        assert agent_id not in logs, f"evidence agent id {agent_id!r} leaked into a log line"
+    for sentinel in all_sentinel_representations():
+        assert sentinel not in logs, f"sentinel representation {sentinel!r} leaked into log output"
+        if sentinel != SENTINEL_TICKER:
+            assert sentinel not in prompts, f"sentinel representation {sentinel!r} leaked into the prompt"
 
 
 # --------- Positive controls (Pitfall 6 — prove capture works) ---------

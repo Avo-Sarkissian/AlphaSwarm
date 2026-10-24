@@ -59,6 +59,6 @@ async def test_run_clock_starts_before_seeding_and_seed_time_is_recorded(
 ) -> None:
     await run_scenario()
     metrics = dict(fake_graph.write_cycle_metrics.await_args.args[1])
-    assert metrics["metrics_version"] == 2
+    assert metrics["metrics_version"] == 3  # 3 since the methodology estimators; the telemetry keys are unchanged
     assert scenario_store.ticks_at_phase["seeding"] >= 1  # the clock was read before SEEDING
     assert 0 < metrics["seed_seconds"] < metrics["total_seconds"]

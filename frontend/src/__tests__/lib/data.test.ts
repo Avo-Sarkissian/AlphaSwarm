@@ -32,6 +32,10 @@ describe('BRACKETS registry vs backend DEFAULT_BRACKETS', () => {
     expect(new Set(colors).size).toBe(colors.length);
     for (const c of colors) expect(c).toMatch(/^#[0-9a-f]{6}$/);
   });
+
+  it('carries each bracket reach (influence_weight_base)', () => {
+    expect(BRACKETS.map((b) => b.reach)).toEqual(fixture.map((b) => b.influence_weight_base));
+  });
 });
 
 describe('bracketOf', () => {

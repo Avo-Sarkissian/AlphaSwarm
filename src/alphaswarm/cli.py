@@ -436,6 +436,7 @@ async def _handle_inject(rumor: str) -> None:
     No run follows an inject, so the seed-only Cycle is marked failed: it must
     not stay ``running`` (docs/DECISIONS.md#adr-cycle-metrics).
     """
+    from alphaswarm.ingestion.tickers import load_ticker_resolver
     from alphaswarm.seed import inject_seed
 
     settings = AppSettings()
@@ -448,6 +449,7 @@ async def _handle_inject(rumor: str) -> None:
                 settings=settings,
                 orchestrator=built.orchestrator,
                 graph_manager=graph,
+                ticker_resolver=await load_ticker_resolver(settings.resolve_path(settings.ticker_map_path)),
             )
         finally:
             # inject_seed tears the model down itself (docs/DECISIONS.md#p5-d-07).

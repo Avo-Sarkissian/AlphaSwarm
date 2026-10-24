@@ -180,6 +180,27 @@ class AgentDecisionRow(TypedDict):
     cited_agents: list[str]
 
 
+class EvidenceEntityRow(TypedDict):
+    """An entity a final-round decision references, with this cycle's resolved ticker."""
+
+    name: str
+    type: str  # EntityType.value
+    ticker: str | None  # MENTIONS.ticker (docs/DECISIONS.md#adr-ticker-resolution)
+
+
+class FinalDecisionRow(TypedDict):
+    """One agent's final-round decision and the entities its rationale referenced
+    (docs/DECISIONS.md#adr-grounded-advisory). PARSE_ERROR rows are included."""
+
+    agent_id: str
+    bracket: str
+    reach: float  # influence_weight_base (docs/DECISIONS.md#adr-influence-weight-reach)
+    signal: str  # lower case SignalType value
+    confidence: float
+    sentiment: float
+    entities: list[EvidenceEntityRow]  # sorted by (name, type)
+
+
 class AgentInterviewRows(TypedDict):
     """What the graph knows about one agent in one cycle; interview.py builds the
     InterviewContext from it (docs/DECISIONS.md#p14-d-06)."""

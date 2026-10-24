@@ -94,6 +94,16 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
   - Worker: prefill about 2361 t/s, decode about 56 t/s.
   - Orchestrator: prefill about 3395 t/s, decode about 11 t/s.
 
+### SEC ticker map (seed-entity tickers)
+The swarm validates orchestrator-proposed tickers against the SEC company map cached at
+`data/sec_tickers.json` (gitignored; `ALPHASWARM_TICKER_MAP_PATH` overrides). Fetch or refresh it once:
+
+    uv run python scripts/fetch_ticker_map.py --user-agent "AlphaSwarm research <your email>"
+
+The SEC asks automated clients to name a contact in the User-Agent; it is sent in that one request
+only. Without the file the resolver still drops known non-company acronyms (FED, OPEC, …) but
+trusts every other proposed symbol; check `ticker_map_loaded source=sec` in the run log.
+
 ## 3. Neo4j operations (beyond README §3)
 
 - Compose service `neo4j`, container `alphaswarm-neo4j`, image

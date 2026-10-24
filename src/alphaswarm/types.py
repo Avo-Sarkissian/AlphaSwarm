@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import dataclasses
 import math
+import re
 from enum import StrEnum
 from typing import Final, Literal, NotRequired, TypedDict
 
@@ -163,6 +164,13 @@ class EntityType(StrEnum):
     PERSON = "person"
 
 
+# US-listed common-stock symbols as the swarm uses them (1-5 capital letters).
+# Shared by the seed schema, the ticker resolver and the RSS router
+# (docs/DECISIONS.md#adr-ticker-resolution).
+TICKER_PATTERN: Final = r"^[A-Z]{1,5}$"
+_TICKER_RE: Final = re.compile(TICKER_PATTERN)
+
+
 class SeedEntity(BaseModel, frozen=True):
     """A single named entity extracted from a seed rumor."""
 
@@ -170,6 +178,9 @@ class SeedEntity(BaseModel, frozen=True):
     type: EntityType
     relevance: float = Field(ge=0.0, le=1.0)
     sentiment: float = Field(ge=-1.0, le=1.0)
+    # Orchestrator-proposed symbol; alphaswarm.ingestion.tickers validates it before
+    # anything uses it (docs/DECISIONS.md#adr-ticker-resolution).
+    ticker: str | None = None
 
     @field_validator("type", mode="before")
     @classmethod
@@ -185,6 +196,14 @@ class SeedEntity(BaseModel, frozen=True):
     @classmethod
     def _normalise_sentiment(cls, value: object) -> object:
         return normalize_signed_unit(value)
+
+    @field_validator("ticker", mode="before")
+    @classmethod
+    def _normalise_ticker(cls, value: object) -> object:
+        if not isinstance(value, str):
+            return None
+        text = value.strip().lstrip("$").upper()
+        return text if _TICKER_RE.match(text) else None
 
 
 class SeedEvent(BaseModel, frozen=True):

@@ -215,3 +215,17 @@ def test_main_says_when_no_cycle_matches(
     assert cc.main(["--tag", "nothing"]) == 0
 
     assert "No complete cycles found with tag 'nothing'" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("group_args", [[], ["--group-by", "experiment_tag", "--n-boot", "20"]])
+def test_main_appends_the_methodology_table_on_both_paths(
+    cc: ModuleType, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], group_args: list[str]
+) -> None:
+    records = [{"c": _cycle("abcdef0123", final_round=2, r2_net_score_headcount=0.25, experiment_tag="arm-a")}]
+    _patch_db(cc, monkeypatch, records)
+
+    assert cc.main([*group_args, "--methodology"]) == 0
+
+    out = capsys.readouterr().out
+    assert "net_reach" in out
+    assert "+0.250" in out

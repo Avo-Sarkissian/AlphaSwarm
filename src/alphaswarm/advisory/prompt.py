@@ -40,6 +40,11 @@ Include a holding only when the swarm produced a CLEAR directional view: a BUY o
 SELL signal, or HOLD with confidence above 0.4. The engine pads every other
 holding after you reply, so the user still sees the full portfolio.
 
+YOUR OWN READING.
+Your "signal" is recorded as your own reading of each holding. The application
+compares it with what the agents that referenced the company imply and flags a
+disagreement, so give your honest reading.
+
 Do not output markdown, commentary or any other key. Return only the JSON object."""
 
 
@@ -64,6 +69,7 @@ def build_advisory_prompt(
     narratives: Sequence[Mapping[str, Any]],
     entity_impact: Sequence[Mapping[str, Any]],
     top_holdings: list[dict[str, Any]],
+    swarm_consensus: str | None = None,
 ) -> list[InferenceMessage]:
     """Build the advisory synthesis messages list (system + user).
 
@@ -75,6 +81,11 @@ def build_advisory_prompt(
     engine.py pads every other holding server-side with HOLD@0.30, so the user
     still sees a full portfolio view without spending prompt tokens on no-signal
     HOLD boilerplate (docs/DECISIONS.md#sweep-b-7).
+
+    `swarm_consensus` is the final round's net-score line over all decided agents
+    (docs/DECISIONS.md#adr-consensus-estimators); it carries no holdings data.
+    Per-holding swarm evidence is deliberately not a parameter: it is joined to
+    the reply server-side (docs/DECISIONS.md#adr-grounded-advisory).
     """
     system = _SYSTEM_INSTRUCTIONS + "\n\n" + _WORKED_EXAMPLE
     portfolio_block_lines = [
@@ -93,6 +104,7 @@ def build_advisory_prompt(
             f"  round_timeline: {json.dumps(timeline, default=str)}",
             f"  bracket_narratives: {json.dumps(narratives, default=str)}",
             f"  entity_impact: {json.dumps(entity_impact, default=str)}",
+            f"  swarm_consensus (final round): {swarm_consensus or 'unavailable'}",
             "",
             *portfolio_block_lines,
             "",

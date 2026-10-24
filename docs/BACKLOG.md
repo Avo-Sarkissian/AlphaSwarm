@@ -96,7 +96,7 @@ improve the product:
 - Rationale citations on the wire (KR-41.1-10).
 - Streaming interviews (KR-41.1-11).
 - Replay rewind (KR-41.1-06).
-- AdvisoryV2 shares, basis, last price, sentiment (KR-41.6-01), and the Risk tab (KR-41.6-05).
+- AdvisoryV2 shares, basis, last price, sentiment (KR-41.6-01; sentiment now comes from swarm evidence, Phase 7), and the Risk tab (KR-41.6-05).
 - Runtime governor and agent-count settings (KR-41.6-06).
 - Overflow-menu placeholders "Coming in v6.x": What-if Compare, Multi-seed Synthesis, Portfolio Stress Test, Customize Brackets (KR-41.6-02).
 

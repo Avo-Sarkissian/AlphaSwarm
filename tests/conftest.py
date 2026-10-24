@@ -38,6 +38,7 @@ HERMETIC_PRESERVED_ENV: Final[frozenset[str]] = frozenset(
         "ALPHASWARM_INFERENCE_CONFIG_PATH",
         "ALPHASWARM_HOLDINGS_CSV_PATH",
         "ALPHASWARM_SECTOR_MAP_PATH",
+        "ALPHASWARM_TICKER_MAP_PATH",
     }
 )
 
@@ -70,6 +71,7 @@ def hermetic_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
     os.environ["ALPHASWARM_INFERENCE_CONFIG_PATH"] = str(config_path)
     os.environ["ALPHASWARM_HOLDINGS_CSV_PATH"] = str(hermetic_dir / "no-holdings.csv")
     os.environ["ALPHASWARM_SECTOR_MAP_PATH"] = str(hermetic_dir / "no-sector-map.json")
+    os.environ["ALPHASWARM_TICKER_MAP_PATH"] = str(hermetic_dir / "no-sec-tickers.json")
     AppSettings.model_config["env_file"] = None
     try:
         yield config_path

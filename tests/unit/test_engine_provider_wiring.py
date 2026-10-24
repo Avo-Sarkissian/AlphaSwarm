@@ -60,6 +60,9 @@ class _FakeGraphManager:
     async def read_entity_impact(self, cycle_id: str) -> list[dict[str, Any]]:
         return []
 
+    async def read_final_round_decisions(self, cycle_id: str) -> list[dict[str, Any]]:
+        return []
+
     async def read_cycle_seed(self, cycle_id: str) -> str:
         return ""
 

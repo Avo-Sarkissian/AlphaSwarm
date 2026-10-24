@@ -39,9 +39,9 @@ const ADVISORY = {
   affected_holdings: 1,
   items: [
     { ticker: 'ZZZT', consensus_signal: 'SELL', confidence: 0.8, rationale_summary: 'x',
-      position_exposure: '2000', source: 'swarm', risk: 'guidance cut', upside: null },
+      cost_basis_exposure: '2000', source: 'swarm', risk: 'guidance cut', upside: null },
     { ticker: 'QQQX', consensus_signal: 'HOLD', confidence: 0.3, rationale_summary: 'y',
-      position_exposure: '1000', source: 'placeholder', risk: null, upside: null },
+      cost_basis_exposure: '1000', source: 'placeholder', risk: null, upside: null },
   ],
   stats: { conviction_count: 1, placeholder_count: 1, buy_count: 0, sell_count: 1, hold_count: 0,
     avg_confidence: 0.8, dominant_signal: 'SELL', dominant_share: 1 },
@@ -65,5 +65,9 @@ describe('AdvisoryPanel backend stats', () => {
     const tags = screen.getAllByText('PLACEHOLDER');
     expect(tags).toHaveLength(1);
     expect(tags[0]?.closest('.adv-qh-row')?.textContent).toContain('QQQX');
+    // A file without swarm fields renders "no swarm evidence"; values are cost basis.
+    expect(screen.getAllByText('no swarm evidence')).toHaveLength(2);
+    expect(screen.getByText('cost basis · 2 holdings')).toBeTruthy();
+    expect(screen.queryByText('DIVERGES')).toBeNull();
   });
 });

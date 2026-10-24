@@ -217,6 +217,10 @@ class CanaryFakeOllamaClient:
         return InferenceResult(content=self._canned, model="canary-fake")
 
 
+# Agent ids the canary graph reports as swarm evidence for the sentinel holding.
+CANARY_EVIDENCE_AGENT_IDS: tuple[str, ...] = ("quants_01", "quants_02", "quants_03")
+
+
 class CanaryFakeGraphManager:
     """FakeGraphManager that routes every read cycle_id into capture_neo4j_writes.
 
@@ -244,6 +248,24 @@ class CanaryFakeGraphManager:
     async def read_entity_impact(self, cycle_id: str) -> list[dict[str, _AnyForCanary]]:
         self._sink.append(f"read_entity_impact cycle_id={cycle_id}")
         return []
+
+    async def read_final_round_decisions(self, cycle_id: str) -> list[dict[str, _AnyForCanary]]:
+        """Three agents reference the sentinel holding, so the swarm-evidence join
+        runs on every canary surface (docs/DECISIONS.md#adr-grounded-advisory)."""
+        self._sink.append(f"read_final_round_decisions cycle_id={cycle_id}")
+        entity = {"name": "Canary Holdings", "type": "company", "ticker": SENTINEL_TICKER}
+        return [
+            {
+                "agent_id": agent_id,
+                "bracket": "quants",
+                "reach": 0.55,
+                "signal": "buy",
+                "confidence": 0.8,
+                "sentiment": 0.4,
+                "entities": [entity],
+            }
+            for agent_id in CANARY_EVIDENCE_AGENT_IDS
+        ]
 
 
 def canary_valid_advisory_json() -> str:
@@ -307,7 +329,7 @@ def canary_invalid_advisory_json() -> str:
                     "consensus_signal": f"BUY {SENTINEL_TICKER}",
                     "confidence": str(SENTINEL_QTY),
                     "rationale_summary": "x",
-                    "position_exposure": f"{SENTINEL_COST_BASIS} USD",
+                    "cost_basis_exposure": f"{SENTINEL_COST_BASIS} USD",
                 }
             ],
             "total_holdings": 1,

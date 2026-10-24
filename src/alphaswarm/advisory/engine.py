@@ -10,6 +10,8 @@ else server-side (docs/DECISIONS.md#adr-advisory-pipeline).
 
 Pitfall 1: NEVER pass the PortfolioSnapshot or Holding objects into a structlog
 event_dict. Log only scalar metadata (cycle_id, counts, hallucinated tickers).
+Swarm evidence per holding is computed in Python and joined after the LLM call;
+it is never logged or sent to the model (docs/DECISIONS.md#adr-grounded-advisory).
 Pitfall 2: NEVER json.dumps over raw Decimal.
 """
 
@@ -17,16 +19,23 @@ from __future__ import annotations
 
 import asyncio
 import re
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
+from alphaswarm.advisory.evidence import SwarmEvidence, compute_swarm_evidence, swarm_consensus_summary
 from alphaswarm.advisory.prompt import build_advisory_prompt
 from alphaswarm.advisory.sector_map import EMPTY_SECTOR_MAP, UNKNOWN_SECTOR, SectorMap
-from alphaswarm.advisory.types import AdvisoryItem, AdvisoryLLMOutput, AdvisoryReport, AdvisoryStats
+from alphaswarm.advisory.types import (
+    AdvisoryItem,
+    AdvisoryLLMItem,
+    AdvisoryLLMOutput,
+    AdvisoryReport,
+    AdvisoryStats,
+)
 from alphaswarm.holdings.types import PortfolioSnapshot
 from alphaswarm.inference.schema import to_portable_schema
 from alphaswarm.inference.structured import chat_structured
@@ -115,22 +124,92 @@ def advisory_llm_schema(tickers: Sequence[str]) -> dict[str, Any]:
     return schema
 
 
+def _evidence_rationale(evidence: SwarmEvidence) -> str:
+    return (
+        f"Swarm evidence: {evidence.support} final-round agents referenced this company "
+        f"({evidence.buy} buy / {evidence.sell} sell / {evidence.hold} hold); "
+        f"net score {evidence.net_score:+.2f}."
+    )
+
+
+def _holding_item(
+    ticker: str,
+    exposure: Decimal,
+    llm_item: AdvisoryLLMItem | None,
+    evidence: SwarmEvidence | None,
+) -> AdvisoryItem:
+    """One holding: swarm signal first, orchestrator second, placeholder last
+    (docs/DECISIONS.md#adr-grounded-advisory)."""
+    swarm_signal = evidence.signal if evidence is not None else None
+    swarm_support = evidence.support if evidence is not None else 0
+    swarm_sentiment = evidence.sentiment if evidence is not None else None
+    evidence_ids = evidence.agent_ids if evidence is not None else ()
+    llm_signal = llm_item.signal if llm_item is not None else None
+    if evidence is not None and evidence.signal is not None:
+        return AdvisoryItem(
+            ticker=ticker,
+            consensus_signal=evidence.signal,
+            confidence=evidence.confidence if evidence.confidence is not None else 0.0,
+            rationale_summary=llm_item.rationale if llm_item is not None else _evidence_rationale(evidence),
+            cost_basis_exposure=exposure,
+            source="swarm",
+            risk=llm_item.risk if llm_item is not None else None,
+            upside=llm_item.upside if llm_item is not None else None,
+            swarm_signal=swarm_signal,
+            swarm_support=swarm_support,
+            swarm_sentiment=swarm_sentiment,
+            evidence_agent_ids=evidence_ids,
+            llm_signal=llm_signal,
+            divergent=llm_signal is not None and llm_signal != evidence.signal,
+        )
+    if llm_item is not None:
+        return AdvisoryItem(
+            ticker=ticker,
+            consensus_signal=llm_item.signal,
+            confidence=llm_item.confidence,
+            rationale_summary=llm_item.rationale,
+            cost_basis_exposure=exposure,
+            source="swarm",
+            risk=llm_item.risk,
+            upside=llm_item.upside,
+            swarm_signal=swarm_signal,
+            swarm_support=swarm_support,
+            swarm_sentiment=swarm_sentiment,
+            evidence_agent_ids=evidence_ids,
+            llm_signal=llm_signal,
+        )
+    return AdvisoryItem(
+        ticker=ticker,
+        consensus_signal="HOLD",
+        confidence=_PLACEHOLDER_CONFIDENCE,
+        rationale_summary=_PLACEHOLDER_RATIONALE,
+        cost_basis_exposure=exposure,
+        source="placeholder",
+        swarm_signal=swarm_signal,
+        swarm_support=swarm_support,
+        swarm_sentiment=swarm_sentiment,
+        evidence_agent_ids=evidence_ids,
+    )
+
+
 def assemble_advisory_report(
     *,
     cycle_id: str,
     portfolio: PortfolioSnapshot,
     llm: AdvisoryLLMOutput,
+    evidence: Mapping[str, SwarmEvidence] | None = None,
     generated_at: datetime | None = None,
 ) -> AdvisoryReport:
-    """Build the advisory the user sees from the model's conviction items.
+    """Build the advisory the user sees: one item per held ticker.
 
-    Keeps only held tickers (the model can still emit others), keeps the
-    highest-confidence item per ticker in the portfolio's casing, sets exposure
-    to the aggregated cost basis, pads every other holding as a HOLD@0.30
-    placeholder (docs/DECISIONS.md#sweep-b-7), ranks by confidence x exposure /
-    total cost basis with placeholders last (docs/DECISIONS.md#p41-d-07) and
-    computes stats over conviction items only.
+    Keeps only held tickers from the model's items (highest confidence per ticker),
+    sets the displayed signal from swarm evidence when it exists
+    (docs/DECISIONS.md#adr-grounded-advisory), pads the rest as HOLD@0.30
+    placeholders (docs/DECISIONS.md#sweep-b-7), ranks conviction items by
+    confidence x cost basis / total cost basis with placeholders last
+    (docs/DECISIONS.md#p41-d-07) and computes stats over conviction items only.
     """
+    by_ticker = evidence or {}
     cost_by_ticker: dict[str, Decimal] = {}
     display_ticker: dict[str, str] = {}
     for holding in portfolio.holdings:
@@ -142,28 +221,17 @@ def assemble_advisory_report(
     # A negative aggregate would invert the ranking (docs/DECISIONS.md#f-29).
     denominator = total_cost if total_cost > 0 else Decimal("1")
 
-    kept: dict[str, AdvisoryItem] = {}
+    llm_by_ticker: dict[str, AdvisoryLLMItem] = {}
     dropped: list[str] = []
     for item in llm.items:
         key = item.ticker.upper()
-        exposure = cost_by_ticker.get(key)
-        if exposure is None:
+        if key not in cost_by_ticker:
             dropped.append(key)
             continue
-        previous = kept.get(key)
+        previous = llm_by_ticker.get(key)
         if previous is not None and previous.confidence >= item.confidence:
             continue
-        # Portfolio casing, so kept and padded items agree (docs/DECISIONS.md#f-30).
-        kept[key] = AdvisoryItem(
-            ticker=display_ticker[key],
-            consensus_signal=item.signal,
-            confidence=item.confidence,
-            rationale_summary=item.rationale,
-            position_exposure=exposure,
-            source="swarm",
-            risk=item.risk,
-            upside=item.upside,
-        )
+        llm_by_ticker[key] = item
     if dropped:
         # Pitfall 1: ticker symbols of NON-held names only; never qty or cost basis.
         log.warning(
@@ -173,24 +241,17 @@ def assemble_advisory_report(
             tickers=dropped,
         )
 
-    placeholders = [
-        AdvisoryItem(
-            ticker=display_ticker[key],
-            consensus_signal="HOLD",
-            confidence=_PLACEHOLDER_CONFIDENCE,
-            rationale_summary=_PLACEHOLDER_RATIONALE,
-            position_exposure=exposure,
-            source="placeholder",
-        )
+    items = [
+        _holding_item(display_ticker[key], exposure, llm_by_ticker.get(key), by_ticker.get(key))
         for key, exposure in cost_by_ticker.items()
-        if key not in kept
     ]
 
     def _score(item: AdvisoryItem) -> float:
-        return float(item.confidence) * (float(item.position_exposure) / float(denominator))
+        return float(item.confidence) * (float(item.cost_basis_exposure) / float(denominator))
 
-    conviction = sorted(kept.values(), key=_score, reverse=True)
-    ranked = tuple(conviction + sorted(placeholders, key=_score, reverse=True))
+    conviction = sorted((i for i in items if i.source == "swarm"), key=_score, reverse=True)
+    placeholders = sorted((i for i in items if i.source == "placeholder"), key=_score, reverse=True)
+    ranked = tuple(conviction + placeholders)
     return AdvisoryReport(
         cycle_id=cycle_id,
         generated_at=generated_at if generated_at is not None else datetime.now(UTC),
@@ -231,12 +292,13 @@ async def synthesize(
     smap = sector_map if sector_map is not None else EMPTY_SECTOR_MAP
     held = {h.ticker.upper() for h in portfolio.holdings}
 
-    # Prefetch all four swarm payloads in parallel (docs/DECISIONS.md#p41-d-04).
-    bracket_summary, timeline, narratives, entities = await asyncio.gather(
+    # Prefetch the swarm payloads in parallel (docs/DECISIONS.md#p41-d-04).
+    bracket_summary, timeline, narratives, entities, final_rows = await asyncio.gather(
         graph_manager.read_consensus_summary(cycle_id),
         graph_manager.read_round_timeline(cycle_id),
         graph_manager.read_bracket_narratives(cycle_id),
         graph_manager.read_entity_impact(cycle_id),
+        graph_manager.read_final_round_decisions(cycle_id),
     )
 
     # The seed rumor only adds context; a failed read must not block the advisory.
@@ -268,6 +330,11 @@ async def synthesize(
             entity_impacts[ticker] = impact
 
     enriched = _enrich_holdings(_ticker_entries(portfolio), entity_impacts, seed_rumor, sector_map=smap)
+    # Deterministic per-holding evidence from the agents themselves
+    # (docs/DECISIONS.md#adr-grounded-advisory). It is joined to the LLM's items
+    # after the call and never enters the prompt: the prompt keeps its minimised
+    # held-ticker list (docs/DECISIONS.md#adr-holdings-isolation).
+    evidence = compute_swarm_evidence(final_rows, held, sector_map=smap)
     top_holdings = enriched[:15]
     # docs/DECISIONS.md#sweep-b-7: do NOT send rest holdings to the LLM. They're padded
     # server-side with HOLD@0.30 after the conviction items return. Saves
@@ -281,6 +348,7 @@ async def synthesize(
         narratives=narratives,
         entity_impact=entities,
         top_holdings=top_holdings,
+        swarm_consensus=swarm_consensus_summary(final_rows),
     )
 
     result = await chat_structured(
@@ -291,7 +359,7 @@ async def synthesize(
         temperature=ADVISORY_TEMPERATURE,
         max_tokens=ADVISORY_MAX_TOKENS,
     )
-    report = assemble_advisory_report(cycle_id=cycle_id, portfolio=portfolio, llm=result.value)
+    report = assemble_advisory_report(cycle_id=cycle_id, portfolio=portfolio, llm=result.value, evidence=evidence)
     log.info(
         "advisory_synthesize_complete",
         cycle_id=cycle_id,
@@ -299,6 +367,8 @@ async def synthesize(
         affected=report.affected_holdings,
         llm_items=len(result.value.items),
         padded_items=report.stats.placeholder_count if report.stats is not None else 0,
+        evidence_items=report.stats.evidence_count if report.stats is not None else 0,
+        divergent_items=report.stats.divergent_count if report.stats is not None else 0,
         parse_tier=result.parse_tier,
         attempts=result.attempts,
     )

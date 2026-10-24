@@ -1,0 +1,125 @@
+[
+  {
+    "expected": {
+      "bracket_equal": 0.066667,
+      "headcount": 0.36,
+      "reach": 0.423529
+    },
+    "name": "mixed",
+    "votes": [
+      {
+        "bracket": "sell_side",
+        "confidence": 0.8,
+        "reach": 0.75,
+        "signal": "buy"
+      },
+      {
+        "bracket": "sell_side",
+        "confidence": 0.8,
+        "reach": 0.75,
+        "signal": "buy"
+      },
+      {
+        "bracket": "sell_side",
+        "confidence": 0.8,
+        "reach": 0.75,
+        "signal": "buy"
+      },
+      {
+        "bracket": "shorts",
+        "confidence": 0.6,
+        "reach": 0.6,
+        "signal": "sell"
+      },
+      {
+        "bracket": "quants",
+        "confidence": 0.5,
+        "reach": 0.55,
+        "signal": "hold"
+      }
+    ]
+  },
+  {
+    "expected": {
+      "bracket_equal": -0.8,
+      "headcount": -0.8,
+      "reach": -0.8
+    },
+    "name": "unanimous_sell",
+    "votes": [
+      {
+        "bracket": "degens",
+        "confidence": 0.9,
+        "reach": 0.5,
+        "signal": "sell"
+      },
+      {
+        "bracket": "degens",
+        "confidence": 0.7,
+        "reach": 0.5,
+        "signal": "sell"
+      }
+    ]
+  },
+  {
+    "expected": {
+      "bracket_equal": -0.25,
+      "headcount": 0.214286,
+      "reach": 0.226667
+    },
+    "name": "one_heavy_bracket",
+    "votes": [
+      {
+        "bracket": "institutions",
+        "confidence": 0.4,
+        "reach": 0.65,
+        "signal": "buy"
+      },
+      {
+        "bracket": "institutions",
+        "confidence": 0.4,
+        "reach": 0.65,
+        "signal": "buy"
+      },
+      {
+        "bracket": "institutions",
+        "confidence": 0.4,
+        "reach": 0.65,
+        "signal": "buy"
+      },
+      {
+        "bracket": "institutions",
+        "confidence": 0.4,
+        "reach": 0.65,
+        "signal": "buy"
+      },
+      {
+        "bracket": "institutions",
+        "confidence": 0.4,
+        "reach": 0.65,
+        "signal": "buy"
+      },
+      {
+        "bracket": "institutions",
+        "confidence": 0.4,
+        "reach": 0.65,
+        "signal": "buy"
+      },
+      {
+        "bracket": "allocators",
+        "confidence": 0.9,
+        "reach": 0.6,
+        "signal": "sell"
+      }
+    ]
+  },
+  {
+    "expected": {
+      "bracket_equal": 0.0,
+      "headcount": 0.0,
+      "reach": 0.0
+    },
+    "name": "empty",
+    "votes": []
+  }
+]

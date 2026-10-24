@@ -41,13 +41,6 @@ describe('consensus panels while a round is in flight', () => {
     expect(screen.queryByText('0/100 decided')).not.toBeNull();
   });
 
-  it('ring: leader and share among decided agents', () => {
-    render(<ConsensusRing agents={mixed} />);
-    expect(screen.queryByText('BUY')).not.toBeNull();
-    expect(screen.queryByText('60%')).not.toBeNull();
-    expect(screen.queryByText('5/8 decided')).not.toBeNull();
-  });
-
   // happy-dom cannot lay out SVG text, so check the geometry: the widest
   // line, "100/100 decided", must fit the ring's inner chord at its baseline
   // (no glyph in it descends below the baseline).
@@ -71,5 +64,44 @@ describe('round progress', () => {
       <KpiStrip agents={[]} tps={0} mem={50} slots={0} slotsMax={8} elapsed={0} round={2} numRounds={2} />,
     );
     expect(screen.queryByText('Elapsed · R2/2')).not.toBeNull();
+  });
+});
+
+describe('ConsensusRing net score', () => {
+  it('shows PENDING when every agent failed or is still thinking', () => {
+    render(<ConsensusRing agents={[makeAgent('quants_01', null), makeAgent('degens_01', 'parse_error')]} />);
+    expect(screen.queryByText('PENDING')).not.toBeNull();
+    expect(screen.queryByText('0/2 decided')).not.toBeNull();
+  });
+
+  it('leans by the confidence-weighted net score and shows the reach-weighted score', () => {
+    render(
+      <ConsensusRing
+        agents={[
+          makeAgent('sell_side_01', 'buy', 0.8), makeAgent('sell_side_02', 'buy', 0.8),
+          makeAgent('sell_side_03', 'buy', 0.8), makeAgent('shorts_01', 'sell', 0.6),
+          makeAgent('quants_01', 'hold', 0.5), makeAgent('degens_01', 'parse_error'),
+          makeAgent('degens_02', null),
+        ]}
+      />,
+    );
+    expect(screen.queryByText('BUY')).not.toBeNull();
+    expect(screen.queryByText('net +0.36')).not.toBeNull();
+    expect(screen.queryByText('reach +0.42')).not.toBeNull();
+    expect(screen.queryByText('5/7 decided')).not.toBeNull();
+  });
+
+  it('a low-conviction BUY plurality leans HOLD', () => {
+    render(
+      <ConsensusRing
+        agents={[
+          makeAgent('quants_01', 'buy', 0.2), makeAgent('quants_02', 'buy', 0.2),
+          makeAgent('quants_03', 'buy', 0.2), makeAgent('quants_04', 'sell', 0.3),
+          makeAgent('quants_05', 'hold', 0.9),
+        ]}
+      />,
+    );
+    expect(screen.queryByText('HOLD')).not.toBeNull(); // net = (0.6 - 0.3) / 5 = 0.06
+    expect(screen.queryByText('net +0.06')).not.toBeNull();
   });
 });
