@@ -198,6 +198,20 @@ npm --prefix frontend run dev                           # http://localhost:5173
 - Headless run with live progress output: `uv run python -m alphaswarm run "<rumor>"`.
   It honors `.secrets/inference.json` since 342b285.
 
+### Methodology experiments (Phase 7)
+Tagged two-round runs on the benchmark seeds, then read-only analysis:
+
+```bash
+ALPHASWARM_NUM_ROUNDS=2 ALPHASWARM_SIMULATION__SIM_SEED=101 \
+ALPHASWARM_SIMULATION__EXPERIMENT_TAG=<tag> uv run alphaswarm run "<rumor>"
+uv run python scripts/compare_cycles.py --methodology            # final-round estimators per cycle
+uv run python scripts/persona_agreement.py --tag <a> --tag <b>   # prompt-twin agreement per arm
+uv run python scripts/context_probe.py --show-block              # market block per benchmark seed
+```
+
+Persona traits: `ALPHASWARM_SIMULATION__PERSONA_TRAITS=false` reproduces the trait-less prompts.
+Results go to `docs/experiments.md` with cycle ids and the git SHA.
+
 ### Cloud mode quick reference
 - Provider config lives in `.secrets/inference.json` (gitignored). Edit it through
   Settings or `PUT /api/settings`. Move it aside (or delete it) to fall back to local
