@@ -77,9 +77,10 @@ def _error_text(exc: anthropic.APIStatusError) -> str:
 
 def _retry_after_header(exc: anthropic.APIStatusError) -> str | None:
     try:
-        return exc.response.headers.get("retry-after")
+        raw = exc.response.headers.get("retry-after")
     except AttributeError:
         return None
+    return raw if isinstance(raw, str) else None
 
 
 def _system_blocks(parts: list[str]) -> list[dict[str, Any]]:
