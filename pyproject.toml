@@ -126,6 +126,7 @@ source_modules = [
     "alphaswarm.app",
     "alphaswarm.batch_dispatcher",
     "alphaswarm.cli",
+    "alphaswarm.consensus",
     "alphaswarm.context_formatter",
     "alphaswarm.data_audit",
     "alphaswarm.doctor",
