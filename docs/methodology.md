@@ -17,7 +17,7 @@ local worker model, and is that edge robust to memorization?
 
 - 15-20 historical public rumor or news events in `eval/events.jsonl`: event id,
   UTC timestamp to the minute (wire time), rumor text as reported, one primary
-  US-listed ticker, a benchmark (SPY unless a sector ETF is more appropriate),
+  US-listed ticker, a benchmark (a broad-market index ETF unless a sector ETF is more appropriate),
   a category, the post-cutoff flag and an anonymized rumor.
 - At least 40% are dated after the worker model's release date (`post_cutoff`).
 - Events are chosen from public news by these criteria before any price reaction
