@@ -41,7 +41,7 @@ export function ReplayBar() {
         <div className="replay-fill" style={{ width: `${(round / numRounds) * 100}%` }} />
         <div className="replay-ticks">
           {['SEED', ...rounds.map((r) => `R${r}`)].map((t, i) => (
-            <span key={t} style={{ color: i <= round ? 'var(--accent)' : 'var(--text-3)' }}>
+            <span key={t} className={i <= round ? 'u-accent' : 'u-muted'}>
               {t}
             </span>
           ))}
