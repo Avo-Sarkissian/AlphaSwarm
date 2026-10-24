@@ -47,6 +47,9 @@ ORCHESTRATOR_SYSTEM_PROMPT = (
     '- type: One of "company", "sector", or "person"\n'
     "- relevance: How central this entity is to the rumor (0.0-1.0)\n"
     "- sentiment: The rumor's implication for this entity (-1.0 bearish to 1.0 bullish)\n"
+    "- ticker: For a publicly listed company, its primary US exchange ticker symbol"
+    " (1-5 capital letters); null for private companies, sectors, people and"
+    " institutions such as central banks or regulators\n"
     "\n"
     "Also determine overall_sentiment for the entire rumor (-1.0 to 1.0).\n"
     "\n"
@@ -54,7 +57,8 @@ ORCHESTRATOR_SYSTEM_PROMPT = (
     " affected even if not named directly. Assign relevance based on centrality to the"
     " rumor's core claim.\n"
     "\n"
-    'Respond with JSON: {"entities": [...], "overall_sentiment": float}'
+    'Respond with JSON: {"entities": [{"name": str, "type": str, "relevance": float,'
+    ' "sentiment": float, "ticker": str | null}, ...], "overall_sentiment": float}'
 )
 
 
