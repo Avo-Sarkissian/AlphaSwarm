@@ -85,10 +85,7 @@ def clock(monkeypatch: pytest.MonkeyPatch) -> FrozenClock:
     monkeypatch.setattr(state_module, "time", frozen)
     monkeypatch.setattr(data_audit_module, "time", frozen)
     monkeypatch.setattr(errors_module, "time", frozen)
-    monkeypatch.setattr(
-        "alphaswarm.web.broadcaster.psutil.virtual_memory",
-        lambda: SimpleNamespace(percent=61.2),
-    )
+    monkeypatch.setattr("alphaswarm.web.broadcaster.memory_used_percent", lambda: 61.2)
     return frozen
 
 

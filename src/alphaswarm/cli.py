@@ -32,12 +32,74 @@ from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
     from alphaswarm.graph import GraphStateManager
+    from alphaswarm.inference.config import RoleConfig
     from alphaswarm.ingestion.types import ContextPacket
     from alphaswarm.rounds import RoundCompleteEvent, ShiftMetrics
     from alphaswarm.services.runtime import Runtime
     from alphaswarm.simulation import SimulationResult
     from alphaswarm.state import BracketSummary
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
+
+
+BANNER_RULE: Final = "=" * 60
+
+
+def render_banner(
+    *,
+    version: str,
+    agents: int,
+    brackets: int,
+    mode: str | None,
+    orchestrator: RoleConfig | None,
+    worker: RoleConfig | None,
+) -> str:
+    """Startup banner: version, swarm size, inference mode, the model each role calls."""
+
+    def _role(cfg: RoleConfig | None) -> str:
+        if cfg is None:
+            return "unknown (inference config invalid)"
+        return f"{cfg.model} ({cfg.provider.value})"
+
+    return "\n".join(
+        [
+            BANNER_RULE,
+            f"  AlphaSwarm v{version}",
+            f"  Agents: {agents} across {brackets} brackets",
+            f"  Inference: {mode or 'invalid config (open Settings)'}",
+            f"  Orchestrator: {_role(orchestrator)}",
+            f"  Worker: {_role(worker)}",
+            BANNER_RULE,
+        ]
+    )
+
+
+def banner_for(settings: AppSettings) -> str:
+    """The banner for this install (sync: call it before any event loop starts)."""
+    from alphaswarm import __version__
+    from alphaswarm.inference.config import load_inference_config
+    from alphaswarm.inference.factory import inference_mode
+
+    brackets = load_bracket_configs()
+    agents = sum(b.count for b in brackets)
+    try:
+        cfg = load_inference_config(settings)
+    except ValueError:
+        return render_banner(
+            version=__version__,
+            agents=agents,
+            brackets=len(brackets),
+            mode=None,
+            orchestrator=None,
+            worker=None,
+        )
+    return render_banner(
+        version=__version__,
+        agents=agents,
+        brackets=len(brackets),
+        mode=inference_mode(cfg),
+        orchestrator=cfg.orchestrator,
+        worker=cfg.worker,
+    )
 
 
 def _print_injection_summary(cycle_id: str, parsed_result: ParsedSeedResult) -> None:
@@ -449,6 +511,7 @@ def _handle_web(host: str, port: int) -> None:
 
     settings = AppSettings()
     configure_logging(log_level=settings.log_level, json_output=not settings.debug)
+    print(banner_for(settings), file=sys.stderr)
     uvicorn.run(
         "alphaswarm.web.app:create_app",
         factory=True,
@@ -457,6 +520,19 @@ def _handle_web(host: str, port: int) -> None:
         workers=1,
         log_config=None,
     )
+
+
+def _handle_doctor(json_output: bool) -> None:
+    """``alphaswarm doctor``: exit 0 when every required check passes, else 1."""
+    from alphaswarm import doctor
+
+    settings = AppSettings()
+    report = asyncio.run(doctor.collect_report(settings))
+    if json_output:
+        print(doctor.render_json(report))
+    else:
+        print(doctor.render_text(report, banner=banner_for(settings)))
+    raise SystemExit(0 if report.ok else 1)
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +632,12 @@ def build_parser() -> argparse.ArgumentParser:
     web = sub.add_parser("web", parents=[verbose], help="Start the web UI server")
     web.add_argument("--host", type=str, default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
     web.add_argument("--port", type=int, default=8000, help="Port number (default: 8000)")
+    doctor = sub.add_parser(
+        "doctor",
+        parents=[verbose],
+        help="Check Neo4j, Ollama, model aliases, MLX, launchctl and the UI build",
+    )
+    doctor.add_argument("--json", action="store_true", help="Print the report as JSON")
     return parser
 
 
@@ -632,6 +714,7 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         "run": lambda: _invoke(_handle_run, args.rumor, **_run_context_kwargs(args)),
         "report": lambda: _invoke(_handle_report, report_cycle, args.output),
         "web": lambda: _invoke(_handle_web, args.host, args.port),
+        "doctor": lambda: _invoke(_handle_doctor, args.json),
     }
     return _run_command(args.command, commands[args.command], verbose=getattr(args, "verbose", False))
 

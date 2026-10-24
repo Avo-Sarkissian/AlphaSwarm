@@ -12,8 +12,11 @@ from collections.abc import Mapping
 from pathlib import Path
 from typing import Any, Final
 
+import structlog
 from pydantic import BaseModel, Field, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+log = structlog.get_logger(component="settings")
 
 #: Repository root. Relative runtime paths (.env, reports/, advisory/, the holdings
 #: CSV, .secrets/inference.json) resolve against it, never against the working
@@ -34,8 +37,6 @@ class OllamaSettings(BaseModel):
     # M1 Max. See modelfiles/ for benchmarks and requirements.
     orchestrator_model: str = "qwen3.6:27b-nvfp4"
     worker_model: str = "qwen3.6:35b-a3b-nvfp4"
-    num_parallel: int = Field(default=4, ge=1, le=32)
-    max_loaded_models: int = Field(default=2, ge=1, le=4)
     base_url: str = "http://localhost:11434"
     # Per-role HTTP timeouts (docs/DECISIONS.md#adr-inference-timeouts). Worker
     # calls take seconds on MLX, so a stalled one is cut at 120 s; orchestrator
@@ -68,6 +69,26 @@ class OllamaSettings(BaseModel):
             stacklevel=2,
         )
         return mapped
+
+    @model_validator(mode="before")
+    @classmethod
+    def _drop_retired_keys(cls, data: Any) -> Any:
+        """Ignore num_parallel / max_loaded_models from old .env files.
+
+        They were never read; server parallelism and the loaded-model count are
+        Ollama server variables (docs/DECISIONS.md#adr-model-aliases).
+        """
+        if not isinstance(data, dict):
+            return data
+        retired = sorted(k for k in ("num_parallel", "max_loaded_models") if k in data)
+        if not retired:
+            return data
+        log.warning(
+            "ollama_retired_settings_ignored",
+            keys=retired,
+            hint="set OLLAMA_NUM_PARALLEL / OLLAMA_MAX_LOADED_MODELS on the Ollama server",
+        )
+        return {k: v for k, v in data.items() if k not in retired}
 
 
 class Neo4jSettings(BaseModel):
@@ -123,6 +144,12 @@ class GovernorSettings(BaseModel):
     crisis_timeout_seconds: float = Field(default=300.0, ge=30.0, le=600.0)
     slot_adjustment_step: int = Field(default=2, ge=1, le=4)
     batch_failure_threshold_percent: float = Field(default=20.0, ge=5.0, le=50.0)
+    # Rolling-window failure accounting (docs/DECISIONS.md#p3-d-04): over the
+    # last failure_window_size inference outcomes, a failure share of at least
+    # batch_failure_threshold_percent shrinks one slot_adjustment_step;
+    # failure_regrow_successes consecutive successes grow one step back.
+    failure_window_size: int = Field(default=20, ge=4, le=200)
+    failure_regrow_successes: int = Field(default=10, ge=1, le=100)
     jitter_min_seconds: float = Field(default=0.5, ge=0.0, le=2.0)
     # Lower bound 0.0 lets deterministic harnesses (tests/engine) turn jitter off;
     # the production default stays 1.5 s (docs/DECISIONS.md#p3-d-14).
@@ -152,6 +179,11 @@ class GovernorSettings(BaseModel):
             raise ValueError(
                 "GovernorSettings: jitter_min_seconds must be <= jitter_max_seconds, "
                 f"got {self.jitter_min_seconds} > {self.jitter_max_seconds}"
+            )
+        if self.baseline_parallel > self.max_parallel:
+            raise ValueError(
+                "GovernorSettings: baseline_parallel must be <= max_parallel, "
+                f"got {self.baseline_parallel} > {self.max_parallel}"
             )
         return self
 

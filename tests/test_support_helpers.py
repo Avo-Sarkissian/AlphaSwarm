@@ -84,7 +84,7 @@ def test_reading_uses_settings_thresholds() -> None:
 async def test_scripted_monitor_replays_in_order_then_repeats_last() -> None:
     monitor = ScriptedMonitor([reading(10.0), reading(20.0)])
     assert isinstance(monitor, MemoryReader)
-    got = [(await monitor.read_combined()).psutil_percent for _ in range(4)]
+    got = [(await monitor.read_combined()).used_percent for _ in range(4)]
     assert got == [10.0, 20.0, 20.0, 20.0]
     assert monitor.reads == 4
 
@@ -105,7 +105,7 @@ async def test_scripted_monitor_blocks_until_push_when_not_repeating() -> None:
     assert not pending.done()
     monitor.push(reading(95.0))
     await eventually(pending.done, what="read after push")
-    assert pending.result().psutil_percent == 95.0
+    assert pending.result().used_percent == 95.0
 
 
 def test_fast_governor_settings_bypasses_only_the_test_knobs() -> None:

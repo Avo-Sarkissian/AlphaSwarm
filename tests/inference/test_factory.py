@@ -33,6 +33,7 @@ from alphaswarm.inference.factory import (
 )
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
+from alphaswarm.settings import GovernorSettings
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -73,9 +74,9 @@ def _fake_model_manager() -> MagicMock:
     return MagicMock(name="OllamaModelManager")
 
 
-def _governor_settings() -> MagicMock:
-    """Stub GovernorSettings."""
-    return MagicMock(name="GovernorSettings")
+def _governor_settings() -> GovernorSettings:
+    """Default GovernorSettings (the governor reads real field values)."""
+    return GovernorSettings()
 
 
 # ---------------------------------------------------------------------------

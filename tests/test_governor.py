@@ -1,4 +1,4 @@
-"""Tests for TokenPool, ResourceGovernor state machine, and StateStore integration."""
+"""Tests for the ResourceGovernor limiter, state machine, and StateStore integration."""
 
 from __future__ import annotations
 
@@ -9,9 +9,10 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from alphaswarm.errors import GovernorCrisisError
-from alphaswarm.governor import GovernorState, ResourceGovernor, TokenPool
+from alphaswarm.governor import GovernorState, ResourceGovernor
 from alphaswarm.memory_monitor import MemoryMonitor, MemoryReader, MemoryReading, PressureLevel
 from alphaswarm.settings import GovernorSettings
+from alphaswarm.types import WorkerPersonaConfig
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -19,154 +20,18 @@ from alphaswarm.settings import GovernorSettings
 
 
 def _reading(
-    psutil_percent: float = 50.0,
+    used_percent: float = 50.0,
     pressure_level: PressureLevel = PressureLevel.GREEN,
 ) -> MemoryReading:
     """Create a MemoryReading with standard thresholds."""
     return MemoryReading(
-        psutil_percent=psutil_percent,
+        used_percent=used_percent,
         pressure_level=pressure_level,
         timestamp=time.monotonic(),
         throttle_threshold=80.0,
         pause_threshold=90.0,
         scale_up_threshold=60.0,
     )
-
-
-# ---------------------------------------------------------------------------
-# TokenPool tests
-# ---------------------------------------------------------------------------
-
-
-class TestTokenPool:
-    """Test TokenPool: init, acquire, release, grow, shrink, debt pattern."""
-
-    async def test_init_with_n_tokens(self) -> None:
-        pool = TokenPool(4)
-        assert pool.current_limit == 4
-        assert pool.available == 4
-        assert pool.debt == 0
-
-    async def test_acquire_blocks_when_empty(self) -> None:
-        pool = TokenPool(1)
-        await pool.acquire()
-        assert pool.available == 0
-
-        # Second acquire should block (timeout to prove it)
-        with pytest.raises(asyncio.TimeoutError):
-            await asyncio.wait_for(pool.acquire(), timeout=0.05)
-
-    async def test_release_returns_token(self) -> None:
-        pool = TokenPool(2)
-        await pool.acquire()
-        assert pool.available == 1
-        pool.release()
-        assert pool.available == 2
-
-    async def test_grow_adds_tokens(self) -> None:
-        pool = TokenPool(4)
-        pool.grow(2)
-        assert pool.current_limit == 6
-        assert pool.available == 6
-
-    async def test_grow_pays_down_debt_no_over_permit(self) -> None:
-        """F-04: crisis-recovery grow must cancel outstanding debt before adding
-        free tokens, so in-flight inferences can never exceed current_limit."""
-        pool = TokenPool(8)
-        for _ in range(8):  # all 8 checked out (memory crisis regime)
-            await pool.acquire()
-        pool.shrink(7)  # crisis shrink to 1; 7 tokens still checked out -> debt
-        assert pool.debt == 7
-        assert pool.current_limit == 1
-
-        pool.grow(7)  # recovery back to baseline
-        # Debt is fully repaid and NO phantom free tokens were added while the
-        # original 8 inferences are still running.
-        assert pool.debt == 0
-        assert pool.available == 0
-        assert pool.current_limit == 8
-
-        # When the 8 originals release, capacity returns to exactly 8 — never more.
-        for _ in range(8):
-            pool.release()
-        assert pool.available == 8
-        assert pool.debt == 0
-
-    async def test_shrink_removes_free_tokens(self) -> None:
-        pool = TokenPool(4)
-        removed = pool.shrink(2)
-        assert removed == 2
-        assert pool.current_limit == 2
-        assert pool.available == 2
-
-    async def test_shrink_when_all_checked_out_sets_debt(self) -> None:
-        """When all tokens are checked out, shrink sets debt counter."""
-        pool = TokenPool(4)
-        # Acquire all 4 tokens
-        for _ in range(4):
-            await pool.acquire()
-        assert pool.available == 0
-
-        removed = pool.shrink(2)
-        # Limit changes immediately, debt records deferred removal
-        assert removed == 2
-        assert pool.current_limit == 2
-        assert pool.debt == 2
-
-    async def test_release_with_debt_discards_token(self) -> None:
-        """Debt pattern: release consumes debt instead of returning to pool."""
-        pool = TokenPool(4)
-        # Acquire all 4
-        for _ in range(4):
-            await pool.acquire()
-        # Shrink by 2 (all checked out -> debt=2)
-        pool.shrink(2)
-        assert pool.debt == 2
-        assert pool.current_limit == 2
-
-        # Release 2 tokens: consumed by debt, not returned to pool
-        pool.release()
-        assert pool.debt == 1
-        assert pool.available == 0
-
-        pool.release()
-        assert pool.debt == 0
-        assert pool.available == 0
-
-    async def test_release_after_debt_repaid_returns_normally(self) -> None:
-        """After debt is fully repaid, subsequent releases return tokens to pool."""
-        pool = TokenPool(4)
-        for _ in range(4):
-            await pool.acquire()
-        pool.shrink(2)
-        assert pool.debt == 2
-
-        # Release 2: consumed by debt
-        pool.release()
-        pool.release()
-        assert pool.debt == 0
-        assert pool.available == 0
-
-        # Release remaining 2: returned to pool normally
-        pool.release()
-        assert pool.available == 1
-        pool.release()
-        assert pool.available == 2
-        assert pool.current_limit == 2
-
-    async def test_shrink_partial_debt(self) -> None:
-        """Shrink with some free and some checked out tokens."""
-        pool = TokenPool(4)
-        # Acquire 2, leave 2 free
-        await pool.acquire()
-        await pool.acquire()
-
-        # Shrink by 3: 2 removed from free pool, 1 becomes debt
-        removed = pool.shrink(3)
-        assert removed == 3
-        assert pool.current_limit == 1
-        assert pool.debt == 1
-        assert pool.available == 0
 
 
 # ---------------------------------------------------------------------------
@@ -256,14 +121,14 @@ class TestGovernorStateTransitions:
     async def test_running_to_throttled(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        reading = _reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN)
+        reading = _reading(used_percent=85.0, pressure_level=PressureLevel.GREEN)
         await gov._apply_state_transition(reading)
         assert gov.state == GovernorState.THROTTLED
 
     async def test_running_to_paused(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        reading = _reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN)
+        reading = _reading(used_percent=92.0, pressure_level=PressureLevel.GREEN)
         await gov._apply_state_transition(reading)
         assert gov.state == GovernorState.PAUSED
         assert gov.is_paused is True
@@ -271,7 +136,7 @@ class TestGovernorStateTransitions:
     async def test_running_to_crisis_on_yellow(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        reading = _reading(psutil_percent=50.0, pressure_level=PressureLevel.YELLOW)
+        reading = _reading(used_percent=50.0, pressure_level=PressureLevel.YELLOW)
         await gov._apply_state_transition(reading)
         assert gov.state == GovernorState.CRISIS
         assert gov.is_paused is True
@@ -279,7 +144,7 @@ class TestGovernorStateTransitions:
     async def test_running_to_crisis_on_red(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        reading = _reading(psutil_percent=50.0, pressure_level=PressureLevel.RED)
+        reading = _reading(used_percent=50.0, pressure_level=PressureLevel.RED)
         await gov._apply_state_transition(reading)
         assert gov.state == GovernorState.CRISIS
 
@@ -293,7 +158,7 @@ class TestGovernorStateTransitions:
         assert gov.current_limit == 1
 
     async def test_crisis_to_recovering_on_green(self) -> None:
-        """D-03: Crisis -> RECOVERING when green, resets to baseline."""
+        """D-03 target, D-01 ramp: CRISIS -> RECOVERING with one step up from 1 slot."""
         settings = GovernorSettings(baseline_parallel=8)
         gov = ResourceGovernor(settings)
         # Enter crisis
@@ -301,10 +166,10 @@ class TestGovernorStateTransitions:
         assert gov.state == GovernorState.CRISIS
         assert gov.current_limit == 1
 
-        # Green reading -> RECOVERING, reset to baseline
-        await gov._apply_state_transition(_reading(psutil_percent=50.0))
+        # Green reading -> RECOVERING, first step toward baseline
+        await gov._apply_state_transition(_reading(used_percent=50.0))
         assert gov.state == GovernorState.RECOVERING
-        assert gov.current_limit == 8
+        assert gov.current_limit == 3
 
     async def test_recovering_to_running(self) -> None:
         """Recovery completes when baseline reached."""
@@ -314,10 +179,10 @@ class TestGovernorStateTransitions:
         await gov._apply_state_transition(_reading(pressure_level=PressureLevel.RED))
         assert gov.state == GovernorState.CRISIS
         # Recover
-        await gov._apply_state_transition(_reading(psutil_percent=50.0))
+        await gov._apply_state_transition(_reading(used_percent=50.0))
         assert gov.state == GovernorState.RECOVERING
-        # Since recovery resets to baseline immediately, next green -> RUNNING
-        await gov._apply_state_transition(_reading(psutil_percent=50.0))
+        # baseline 4: crisis exit gives 1 + 2 = 3, the next green adds 1 -> 4 -> RUNNING
+        await gov._apply_state_transition(_reading(used_percent=50.0))
         assert gov.state == GovernorState.RUNNING
 
     async def test_crisis_back_to_crisis_from_recovering(self) -> None:
@@ -325,7 +190,7 @@ class TestGovernorStateTransitions:
         gov = ResourceGovernor(settings)
         await gov._apply_state_transition(_reading(pressure_level=PressureLevel.YELLOW))
         assert gov.state == GovernorState.CRISIS
-        await gov._apply_state_transition(_reading(psutil_percent=50.0))
+        await gov._apply_state_transition(_reading(used_percent=50.0))
         assert gov.state == GovernorState.RECOVERING
         # Crisis again
         await gov._apply_state_transition(_reading(pressure_level=PressureLevel.RED))
@@ -335,7 +200,7 @@ class TestGovernorStateTransitions:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
         # Enter THROTTLED
-        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.THROTTLED
         # Then CRISIS
         await gov._apply_state_transition(_reading(pressure_level=PressureLevel.YELLOW))
@@ -344,23 +209,23 @@ class TestGovernorStateTransitions:
     async def test_throttled_to_paused(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.THROTTLED
-        await gov._apply_state_transition(_reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=92.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.PAUSED
 
     async def test_throttled_back_to_running(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.THROTTLED
-        await gov._apply_state_transition(_reading(psutil_percent=50.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=50.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.RUNNING
 
     async def test_paused_to_crisis(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        await gov._apply_state_transition(_reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=92.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.PAUSED
         await gov._apply_state_transition(_reading(pressure_level=PressureLevel.RED))
         assert gov.state == GovernorState.CRISIS
@@ -368,9 +233,9 @@ class TestGovernorStateTransitions:
     async def test_paused_to_running_when_pressure_drops(self) -> None:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings)
-        await gov._apply_state_transition(_reading(psutil_percent=92.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=92.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.PAUSED
-        await gov._apply_state_transition(_reading(psutil_percent=50.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=50.0, pressure_level=PressureLevel.GREEN))
         # Should go back to RUNNING (not throttled since below throttle threshold)
         assert gov.state == GovernorState.RUNNING
 
@@ -394,7 +259,7 @@ class TestGovernorScaleUp:
         gov = ResourceGovernor(settings)
         assert gov.current_limit == 8
 
-        low_reading = _reading(psutil_percent=40.0, pressure_level=PressureLevel.GREEN)
+        low_reading = _reading(used_percent=40.0, pressure_level=PressureLevel.GREEN)
         # 3 consecutive eligible checks
         await gov._apply_state_transition(low_reading)
         await gov._apply_state_transition(low_reading)
@@ -409,8 +274,8 @@ class TestGovernorScaleUp:
             slot_adjustment_step=2,
         )
         gov = ResourceGovernor(settings)
-        low = _reading(psutil_percent=40.0, pressure_level=PressureLevel.GREEN)
-        high = _reading(psutil_percent=70.0, pressure_level=PressureLevel.GREEN)
+        low = _reading(used_percent=40.0, pressure_level=PressureLevel.GREEN)
+        high = _reading(used_percent=70.0, pressure_level=PressureLevel.GREEN)
 
         await gov._apply_state_transition(low)
         await gov._apply_state_transition(low)
@@ -430,7 +295,7 @@ class TestGovernorScaleUp:
             slot_adjustment_step=2,
         )
         gov = ResourceGovernor(settings)
-        low = _reading(psutil_percent=40.0, pressure_level=PressureLevel.GREEN)
+        low = _reading(used_percent=40.0, pressure_level=PressureLevel.GREEN)
 
         # First scale-up: 8 -> 10
         for _ in range(3):
@@ -500,43 +365,76 @@ class TestGovernorCrisisTimeout:
 # ---------------------------------------------------------------------------
 
 
-class TestGovernorWaveFailures:
-    """Test report_wave_failures shrink behavior."""
+class TestGovernorFailureWindow:
+    """Rolling-window failure accounting in release() (docs/DECISIONS.md#p3-d-04)."""
 
-    async def test_shrink_on_high_failure_rate(self) -> None:
-        """D-04: Failure rate >= 20% triggers shrink by slot_adjustment_step."""
-        settings = GovernorSettings(
-            baseline_parallel=8,
-            slot_adjustment_step=2,
-            batch_failure_threshold_percent=20.0,
-        )
-        gov = ResourceGovernor(settings)
-        assert gov.current_limit == 8
+    @staticmethod
+    def _settings(**overrides: object) -> GovernorSettings:
+        base: dict[str, object] = {
+            "baseline_parallel": 8,
+            "slot_adjustment_step": 2,
+            "batch_failure_threshold_percent": 20.0,
+            "failure_window_size": 10,
+            "failure_regrow_successes": 5,
+        }
+        base.update(overrides)
+        return GovernorSettings(**base)  # type: ignore[arg-type]
 
-        # 20% failure rate: 2 failures out of 10
-        gov.report_wave_failures(success_count=8, failure_count=2)
+    @staticmethod
+    async def _calls(gov: ResourceGovernor, outcomes: list[bool]) -> None:
+        for ok in outcomes:
+            await gov.acquire()
+            gov.release(success=ok)
+
+    async def test_threshold_failures_in_a_full_window_shrink_one_step(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        await self._calls(gov, [True] * 8 + [False] * 2)
         assert gov.current_limit == 6
 
-    async def test_shrink_minimum_1_slot(self) -> None:
-        """D-05: Governor never shrinks below 1 slot."""
-        settings = GovernorSettings(
-            baseline_parallel=2,
-            slot_adjustment_step=4,
-            batch_failure_threshold_percent=20.0,
-        )
-        gov = ResourceGovernor(settings)
-        # Try to shrink below 1
-        gov.report_wave_failures(success_count=1, failure_count=9)
-        assert gov.current_limit >= 1
+    async def test_a_partial_window_never_shrinks(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        await self._calls(gov, [False] * 9)
+        assert gov.current_limit == 8
 
-    async def test_no_shrink_on_low_failure_rate(self) -> None:
-        """Below threshold failure rate does not shrink."""
-        settings = GovernorSettings(
-            baseline_parallel=8,
-            batch_failure_threshold_percent=20.0,
+    async def test_below_threshold_does_not_shrink(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        await self._calls(gov, [True] * 9 + [False])
+        assert gov.current_limit == 8
+
+    async def test_never_below_one_slot(self) -> None:
+        gov = ResourceGovernor(self._settings(baseline_parallel=2, max_parallel=2))
+        await self._calls(gov, [False] * 30)
+        assert gov.current_limit == 1
+
+    async def test_consecutive_successes_grow_back_only_what_was_shrunk(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        await self._calls(gov, [True] * 8 + [False] * 2)
+        assert gov.current_limit == 6
+        await self._calls(gov, [True] * 5)
+        assert gov.current_limit == 8
+        await self._calls(gov, [True] * 20)
+        assert gov.current_limit == 8  # never above the pre-shrink level via this path
+
+    async def test_wave_report_is_a_noop(self) -> None:
+        gov = ResourceGovernor(self._settings())
+        gov.report_wave_failures(success_count=1, failure_count=9)
+        assert gov.current_limit == 8
+
+    async def test_parse_fallbacks_do_not_count_as_failures(self, sample_personas: list[WorkerPersonaConfig]) -> None:
+        """Malformed JSON returns a PARSE_ERROR decision; agent_worker releases success=True."""
+        from alphaswarm.inference.types import InferenceResult, ProviderRole
+        from alphaswarm.worker import agent_worker
+        from tests.inference.fakes import FakeInferenceProvider
+
+        gov = ResourceGovernor(self._settings())
+        provider = FakeInferenceProvider(
+            ProviderRole.WORKER,
+            "fake-worker",
+            scripted=lambda **_: InferenceResult(content="not json at all", model="fake-worker"),
         )
-        gov = ResourceGovernor(settings)
-        gov.report_wave_failures(success_count=9, failure_count=1)  # 10% < 20%
+        for _ in range(20):
+            async with agent_worker(sample_personas[0], gov, provider) as worker:
+                await worker.infer(user_message="ZZZT Holdings is in late-stage talks.")
         assert gov.current_limit == 8
 
 
@@ -578,7 +476,7 @@ class TestGovernorLogging:
         gov = ResourceGovernor(settings)
 
         with patch("alphaswarm.governor.log") as mock_log:
-            await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
+            await gov._apply_state_transition(_reading(used_percent=85.0, pressure_level=PressureLevel.GREEN))
             # Verify warning was called with reason
             mock_log.warning.assert_called()
             call_kwargs = mock_log.warning.call_args
@@ -586,7 +484,7 @@ class TestGovernorLogging:
             assert call_kwargs.kwargs == {
                 "old_state": GovernorState.RUNNING.value,
                 "new_state": GovernorState.THROTTLED.value,
-                "reason": "sysctl=green, psutil=85.0%",
+                "reason": "pressure=green, used=85.0%",
             }
 
 
@@ -606,7 +504,7 @@ class TestGovernorStateStore:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings, state_store=mock_store)
 
-        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=85.0, pressure_level=PressureLevel.GREEN))
         mock_store.update_governor_metrics.assert_called_once()
 
     async def test_state_store_none_no_error(self) -> None:
@@ -615,7 +513,7 @@ class TestGovernorStateStore:
         gov = ResourceGovernor(settings, state_store=None)
 
         # Should not raise
-        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert gov.state == GovernorState.THROTTLED
 
     async def test_state_store_metrics_have_correct_fields(self) -> None:
@@ -627,7 +525,7 @@ class TestGovernorStateStore:
         settings = GovernorSettings(baseline_parallel=4)
         gov = ResourceGovernor(settings, state_store=mock_store)
 
-        await gov._apply_state_transition(_reading(psutil_percent=85.0, pressure_level=PressureLevel.GREEN))
+        await gov._apply_state_transition(_reading(used_percent=85.0, pressure_level=PressureLevel.GREEN))
         assert len(captured_metrics) == 1
         metrics = captured_metrics[0]
         assert hasattr(metrics, "current_slots")
@@ -757,7 +655,7 @@ class TestGovernorMonitorSeam:
 
     async def test_injected_monitor_drives_the_state_machine(self) -> None:
         settings = GovernorSettings(baseline_parallel=4).model_copy(update={"check_interval_seconds": 0.0})
-        monitor = _FixedMonitor(_reading(psutil_percent=85.0))
+        monitor = _FixedMonitor(_reading(used_percent=85.0))
         gov = ResourceGovernor(settings, monitor=monitor)
         await gov.start_monitoring()
         try:
@@ -787,3 +685,68 @@ class TestGovernorMonitorSeam:
 
     def test_memory_monitor_satisfies_the_reader_protocol(self) -> None:
         assert isinstance(MemoryMonitor(GovernorSettings()), MemoryReader)
+
+
+class TestPauseEscalation:
+    """PAUSED escalates to CRISIS after the D-07 timeout (docs/DECISIONS.md#p3-d-07)."""
+
+    async def _paused(self) -> ResourceGovernor:
+        gov = ResourceGovernor(GovernorSettings(baseline_parallel=4, crisis_timeout_seconds=30.0))
+        await gov._apply_state_transition(_reading(used_percent=92.0))
+        assert gov.state is GovernorState.PAUSED
+        return gov
+
+    async def test_escalates_after_timeout_without_success(self) -> None:
+        gov = await self._paused()
+        past = time.monotonic() - 60
+        gov._paused_since = past
+        gov._last_successful_inference = past
+        await gov._apply_state_transition(_reading(used_percent=92.0))
+        assert gov.state is GovernorState.CRISIS
+        assert gov.current_limit == 1
+        assert gov._crisis_start == past
+
+    async def test_does_not_escalate_while_inference_succeeds(self) -> None:
+        gov = await self._paused()
+        gov._paused_since = time.monotonic() - 60
+        gov._last_successful_inference = time.monotonic()
+        await gov._apply_state_transition(_reading(used_percent=92.0))
+        assert gov.state is GovernorState.PAUSED
+
+    async def test_escalated_crisis_aborts_on_the_next_check(self) -> None:
+        gov = await self._paused()
+        past = time.monotonic() - 60
+        gov._paused_since = past
+        gov._last_successful_inference = past
+        await gov._apply_state_transition(_reading(used_percent=92.0))
+        with pytest.raises(GovernorCrisisError):
+            await gov._apply_state_transition(_reading(used_percent=92.0))
+
+    async def test_crisis_holds_while_memory_stays_in_the_pause_zone(self) -> None:
+        gov = ResourceGovernor(GovernorSettings(baseline_parallel=4))
+        await gov._apply_state_transition(_reading(pressure_level=PressureLevel.YELLOW))
+        await gov._apply_state_transition(_reading(used_percent=93.0))  # kernel GREEN, 93% used
+        assert gov.state is GovernorState.CRISIS
+
+    async def test_leaving_pause_clears_the_pause_clock(self) -> None:
+        gov = await self._paused()
+        await gov._apply_state_transition(_reading(used_percent=50.0))
+        assert gov.state is GovernorState.RUNNING
+        assert gov._paused_since is None
+
+
+async def test_recovery_ramps_by_step_until_baseline() -> None:
+    """docs/DECISIONS.md#p3-d-01 + #p3-d-03: 1 -> 3 -> 5 -> 7 -> 8, then RUNNING."""
+    gov = ResourceGovernor(GovernorSettings(baseline_parallel=8, slot_adjustment_step=2))
+    await gov._apply_state_transition(_reading(pressure_level=PressureLevel.RED))
+    limits = []
+    for _ in range(5):
+        await gov._apply_state_transition(_reading(used_percent=50.0))
+        limits.append((gov.state, gov.current_limit))
+    assert limits == [
+        (GovernorState.RECOVERING, 3),
+        (GovernorState.RECOVERING, 5),
+        (GovernorState.RECOVERING, 7),
+        (GovernorState.RUNNING, 8),
+        (GovernorState.RUNNING, 8),
+    ]

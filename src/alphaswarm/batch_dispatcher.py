@@ -270,9 +270,11 @@ async def dispatch_wave(
 
     failure_count = sum(1 for r in results if r.signal == SignalType.PARSE_ERROR)
     success_count = len(results) - failure_count
-
-    if failure_count > 0:
-        governor.report_wave_failures(success_count, failure_count)
+    # Controllers hear only inference failures: malformed JSON is not resource or
+    # rate-limit trouble (docs/DECISIONS.md#p3-d-04).
+    inference_failures = sum(1 for r in results if r.error_kind == "inference")
+    if inference_failures > 0:
+        governor.report_wave_failures(len(results) - inference_failures, inference_failures)
 
     log.info(
         "wave complete",

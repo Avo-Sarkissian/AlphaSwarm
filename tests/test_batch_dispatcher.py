@@ -1442,3 +1442,59 @@ async def test_jitter_only_for_cloud_providers(
     )
     assert len(draws) == expected_draws
     assert all(draw == (0.5, 1.5) for draw in draws)
+
+
+async def test_controllers_hear_only_inference_failures(
+    sample_personas: list[WorkerPersonaConfig],
+) -> None:
+    """Parse failures are not resource or rate-limit trouble (docs/DECISIONS.md#p3-d-04)."""
+    import json
+
+    reports: list[tuple[int, int]] = []
+
+    class _Recorder:
+        async def acquire(self) -> None: ...
+
+        def release(self, *, success: bool = True, result_tokens: int | None = None) -> None: ...
+
+        def report_wave_failures(self, success_count: int, failure_count: int) -> None:
+            reports.append((success_count, failure_count))
+
+        async def start_monitoring(self) -> None: ...
+
+        async def stop_monitoring(self) -> None: ...
+
+        async def __aenter__(self) -> _Recorder:
+            return self
+
+        async def __aexit__(self, *args: object) -> None: ...
+
+    calls = 0
+    valid = json.dumps(
+        {
+            "signal": "buy",
+            "confidence": 0.5,
+            "sentiment": 0.1,
+            "rationale": "Fictional desk view",
+            "cited_agents": [],
+        }
+    )
+
+    def _script(**_: object) -> InferenceResult:
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            raise RuntimeError("connection reset")
+        if calls == 2:
+            return InferenceResult(content="{{not json", model="w")
+        return InferenceResult(content=valid, model="w")
+
+    provider = FakeInferenceProvider(ProviderRole.WORKER, "w", scripted=_script)
+    await dispatch_wave(
+        personas=sample_personas,
+        governor=_Recorder(),
+        provider=provider,
+        user_message="ZZZT Holdings is in late-stage talks to acquire QQQX Robotics.",
+        settings=GovernorSettings(jitter_min_seconds=0.0, jitter_max_seconds=0.0),
+    )
+    assert reports == [(len(sample_personas) - 1, 1)]

@@ -382,18 +382,14 @@ def test_snapshot_to_json() -> None:
 def test_snapshot_to_json_includes_live_memory_percent_idle(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """MEM-01: IDLE phase (governor_metrics=None): non-None governor_metrics with live psutil %."""
+    """MEM-01: IDLE phase (governor_metrics=None): non-None governor_metrics with live memory %."""
     import json
-    from types import SimpleNamespace
 
     from alphaswarm.state import StateStore
     from alphaswarm.web.broadcaster import snapshot_to_json
 
     store = StateStore()
-    monkeypatch.setattr(
-        "alphaswarm.web.broadcaster.psutil.virtual_memory",
-        lambda: SimpleNamespace(percent=42.0),
-    )
+    monkeypatch.setattr("alphaswarm.web.broadcaster.memory_used_percent", lambda: 42.0)
     parsed = json.loads(snapshot_to_json(store))
     assert parsed["governor_metrics"] is not None
     assert parsed["governor_metrics"]["memory_percent"] == 42.0
@@ -407,9 +403,8 @@ def test_snapshot_to_json_includes_live_memory_percent_idle(
 def test_snapshot_to_json_overlays_memory_percent_when_governor_silent(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """MEM-01: Stale GovernorMetrics is overlaid with fresh psutil % by broadcaster."""
+    """MEM-01: Stale GovernorMetrics is overlaid with fresh memory % by broadcaster."""
     import json
-    from types import SimpleNamespace
 
     from alphaswarm.state import GovernorMetrics, StateStore
     from alphaswarm.web.broadcaster import snapshot_to_json
@@ -424,12 +419,9 @@ def test_snapshot_to_json_overlays_memory_percent_when_governor_silent(
         timestamp=100.0,
     )
     store.update_governor_metrics(stale_gm)
-    monkeypatch.setattr(
-        "alphaswarm.web.broadcaster.psutil.virtual_memory",
-        lambda: SimpleNamespace(percent=73.5),
-    )
+    monkeypatch.setattr("alphaswarm.web.broadcaster.memory_used_percent", lambda: 73.5)
     parsed = json.loads(snapshot_to_json(store))
-    # Fresh psutil wins over stale governor value
+    # Fresh reading wins over stale governor value
     assert parsed["governor_metrics"]["memory_percent"] == 73.5
     # Governor-authoritative fields are preserved
     assert parsed["governor_metrics"]["current_slots"] == 8
@@ -438,9 +430,8 @@ def test_snapshot_to_json_overlays_memory_percent_when_governor_silent(
 
 
 def test_broadcaster_emits_fresh_memory_percent_per_tick(monkeypatch: pytest.MonkeyPatch) -> None:
-    """MEM-02: Each call to snapshot_to_json reads psutil fresh (not cached across calls)."""
+    """MEM-02: Each call to snapshot_to_json reads memory % fresh (not cached across calls)."""
     import json
-    from types import SimpleNamespace
 
     from alphaswarm.state import StateStore
     from alphaswarm.web.broadcaster import snapshot_to_json
@@ -449,15 +440,12 @@ def test_broadcaster_emits_fresh_memory_percent_per_tick(monkeypatch: pytest.Mon
     vals = [50.0, 55.0, 60.0]
     call_count = [0]
 
-    def _fake_virtual_memory() -> SimpleNamespace:
+    def _fake_used_percent() -> float:
         result = vals[call_count[0]]
         call_count[0] += 1
-        return SimpleNamespace(percent=result)
+        return result
 
-    monkeypatch.setattr(
-        "alphaswarm.web.broadcaster.psutil.virtual_memory",
-        _fake_virtual_memory,
-    )
+    monkeypatch.setattr("alphaswarm.web.broadcaster.memory_used_percent", _fake_used_percent)
     results = [json.loads(snapshot_to_json(store)) for _ in range(3)]
     assert results[0]["governor_metrics"]["memory_percent"] == 50.0
     assert results[1]["governor_metrics"]["memory_percent"] == 55.0
@@ -469,7 +457,6 @@ def test_overlay_preserves_governor_authoritative_fields(
 ) -> None:
     """MEM-03: Overlay only replaces memory_percent; all other governor fields unchanged."""
     import json
-    from types import SimpleNamespace
 
     from alphaswarm.state import GovernorMetrics, StateStore
     from alphaswarm.web.broadcaster import snapshot_to_json
@@ -484,10 +471,7 @@ def test_overlay_preserves_governor_authoritative_fields(
         timestamp=999.0,
     )
     store.update_governor_metrics(original_gm)
-    monkeypatch.setattr(
-        "alphaswarm.web.broadcaster.psutil.virtual_memory",
-        lambda: SimpleNamespace(percent=88.8),
-    )
+    monkeypatch.setattr("alphaswarm.web.broadcaster.memory_used_percent", lambda: 88.8)
     parsed = json.loads(snapshot_to_json(store))
     gm = parsed["governor_metrics"]
     # Only memory_percent changes
@@ -511,10 +495,7 @@ def test_replay_mode_memory_behavior(monkeypatch: pytest.MonkeyPatch) -> None:
     replay_store = ReplayStore(cycle_id="test-cycle", signals={})
     replay_store.set_round(1)
     replay_manager = SimpleNamespace(is_active=True, has_store=True, store=replay_store)
-    monkeypatch.setattr(
-        "alphaswarm.web.broadcaster.psutil.virtual_memory",
-        lambda: SimpleNamespace(percent=88.0),
-    )
+    monkeypatch.setattr("alphaswarm.web.broadcaster.memory_used_percent", lambda: 88.0)
     parsed = json.loads(snapshot_to_json(state_store=StateStore(), replay_manager=replay_manager))
     assert parsed["phase"] == "replay"
     assert parsed["governor_metrics"] is not None
@@ -1592,3 +1573,26 @@ async def test_m8x_sim_manager_complete_phase_set_once() -> None:
         f"B10 duplicate COMPLETE call is NOT removed. "
         f"All calls: {mock_state_store.set_phase.call_args_list}"
     )
+
+
+def test_frame_memory_percent_comes_from_the_governor_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The overlay shows what the governor sees (docs/DECISIONS.md#p3-d-12)."""
+    import json
+
+    from alphaswarm.state import StateStore
+    from alphaswarm.web.broadcaster import snapshot_to_json
+
+    monkeypatch.setattr("alphaswarm.web.broadcaster.memory_used_percent", lambda: 23.0)
+    parsed = json.loads(snapshot_to_json(StateStore()))
+    assert parsed["governor_metrics"]["memory_percent"] == 23.0
+
+
+def test_health_memory_percent_comes_from_the_governor_signal(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("alphaswarm.web.routes.health.memory_used_percent", lambda: 23.0)
+    with TestClient(_make_test_app()) as client:
+        r = client.get("/api/health")
+    assert r.json()["memory_percent"] == 23.0

@@ -123,7 +123,7 @@ async def test_malformed_worker_output_becomes_parse_error_and_run_completes(
     assert len(round_calls(worker, 2)) == 100
     assert all("degens_03" not in c.shown_peer_ids for c in round_calls(worker, 2))
     assert fake_graph.write_cycle_metrics.await_args.args[1]["r1_parse_errors"] == 1
-    assert scenario_controller.wave_reports == [(99, 1)]
+    assert scenario_controller.wave_reports == []  # parse failures are not reported (docs/DECISIONS.md#p3-d-04)
     assert scenario_controller.failures == 0  # the call succeeded; only parsing failed
     assert scenario_store.phases[-1] is SimulationPhase.COMPLETE
 

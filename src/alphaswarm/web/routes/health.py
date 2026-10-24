@@ -17,7 +17,6 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Final, Literal
 
-import psutil
 import structlog
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field
@@ -26,6 +25,7 @@ from alphaswarm import __version__
 from alphaswarm.errors import InferenceConfigFileError
 from alphaswarm.inference.config import InferenceConfig, ProviderType, load_inference_config
 from alphaswarm.inference.factory import inference_mode
+from alphaswarm.memory_monitor import memory_used_percent
 from alphaswarm.readiness import ComponentStatus, check_neo4j, check_ollama
 
 if TYPE_CHECKING:
@@ -96,7 +96,7 @@ async def health(request: Request) -> HealthResponse:
     return HealthResponse(
         status="degraded" if degraded else "ok",
         simulation_phase=snap.phase.value,
-        memory_percent=psutil.virtual_memory().percent,
+        memory_percent=memory_used_percent(),
         is_simulation_running=request.app.state.sim_manager.is_running,
         inference_mode=mode,
         spent_usd=spent,
