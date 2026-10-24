@@ -32,9 +32,16 @@ def test_only_the_hermetic_variables_are_set(hermetic_env: Path) -> None:
     assert present == [
         "ALPHASWARM_HOLDINGS_CSV_PATH",
         "ALPHASWARM_INFERENCE_CONFIG_PATH",
+        "ALPHASWARM_INSTANCE_LOCK",
         "ALPHASWARM_SECTOR_MAP_PATH",
     ]
     assert os.environ["ALPHASWARM_INFERENCE_CONFIG_PATH"] == str(hermetic_env)
+
+
+def test_the_instance_lock_never_points_at_the_real_file(isolated_instance_lock: Path) -> None:
+    """Subprocesses inherit the temporary lock (docs/DECISIONS.md#adr-instance-lock)."""
+    assert os.environ["ALPHASWARM_INSTANCE_LOCK"] == str(isolated_instance_lock)
+    assert isolated_instance_lock != Path.home() / ".alphaswarm" / "instance.lock"
 
 
 def test_the_holdings_csv_path_never_points_at_real_data(hermetic_env: Path) -> None:
