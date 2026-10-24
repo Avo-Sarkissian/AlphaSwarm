@@ -32,7 +32,7 @@ from alphaswarm.manifest import (
 )
 from alphaswarm.metrics import RoundInput, methodology_metrics
 from alphaswarm.personas import compute_prompt_template_hash, generate_personas
-from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
+from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS, focal_instrument
 from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT
 from alphaswarm.rounds import (
     OnRoundComplete,
@@ -513,7 +513,6 @@ async def _run_simulation(
     sim_seed = await _record_run_manifest(
         deps, cycle_id, brackets, modifier_result, market_context, git=(git_sha, git_dirty)
     )
-
     ctx = RoundContext(
         deps=deps,
         cycle_id=cycle_id,
@@ -525,6 +524,7 @@ async def _run_simulation(
         run_seed=str(sim_seed),  # docs/DECISIONS.md#adr-run-manifest
         on_round_complete=on_round_complete,
         sim_seed=sim_seed,
+        focal=focal_instrument(parsed_result.seed_event.entities),
     )
     outcomes: list[RoundOutcome] = []
     shocks: list[str] = []
