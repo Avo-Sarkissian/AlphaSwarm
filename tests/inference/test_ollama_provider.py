@@ -405,3 +405,33 @@ async def test_orchestrator_prepare_never_cleans_state() -> None:
     await p.prepare()
     assert p.clean_state_on_prepare is False
     assert mgr.events == ["load:alphaswarm-orchestrator"]
+
+
+# ---------------------------------------------------------------------------
+# seed → options (docs/DECISIONS.md#adr-run-manifest)
+# ---------------------------------------------------------------------------
+
+
+async def test_seed_goes_into_options_next_to_temperature() -> None:
+    p, fc, _ = _make_provider()
+    await p.chat([{"role": "user", "content": "x"}], temperature=0.4, seed=123)
+
+    assert fc.kwargs is not None
+    assert fc.kwargs["options"]["seed"] == 123
+    assert fc.kwargs["options"]["temperature"] == 0.4
+
+
+async def test_seed_alone_creates_options() -> None:
+    p, fc, _ = _make_provider()
+    await p.chat([{"role": "user", "content": "x"}], seed=7)
+
+    assert fc.kwargs is not None
+    assert fc.kwargs["options"]["seed"] == 7
+
+
+async def test_no_seed_sends_no_seed_option() -> None:
+    p, fc, _ = _make_provider()
+    await p.chat([{"role": "user", "content": "x"}], temperature=0.4)
+
+    assert fc.kwargs is not None
+    assert "seed" not in (fc.kwargs["options"] or {})

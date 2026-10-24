@@ -206,6 +206,7 @@ class CanaryFakeOllamaClient:
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> _AnyForCanary:
         """Record the rendered prompt and return a canned InferenceResult."""
         from alphaswarm.inference.types import InferenceResult
@@ -278,6 +279,7 @@ class CanarySequenceProvider(CanaryFakeOllamaClient):
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> _AnyForCanary:
         from alphaswarm.inference.types import InferenceResult
 

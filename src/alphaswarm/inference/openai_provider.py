@@ -241,6 +241,7 @@ class OpenAICompatProvider:
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> InferenceResult:
         """POST to ``/chat/completions`` and return a normalised result.
 
@@ -250,7 +251,7 @@ class OpenAICompatProvider:
         - ``json_mode=True`` (or schema with ``_no_strict``) → ``response_format``
           built by ``to_openai_json_object``.
         - Neither → ``response_format`` key omitted entirely.
-        - ``temperature`` / ``max_tokens`` included only when not None.
+        - ``temperature`` / ``max_tokens`` / ``seed`` included only when not None.
 
         Retry policy: see ``_post_with_retry`` (docs/DECISIONS.md#adr-cloud-retry).
 
@@ -259,6 +260,8 @@ class OpenAICompatProvider:
             Cached prompt tokens and the finish reason are reported; timings are not (cloud).
         """
         body = self._build_body(messages, response_schema, json_mode, temperature, max_tokens)
+        if seed is not None:
+            body["seed"] = seed
         return await logged_call(self.role, self.model, self._post_with_retry(body, response_schema=response_schema))
 
     # ------------------------------------------------------------------

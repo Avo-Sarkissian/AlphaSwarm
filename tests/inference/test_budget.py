@@ -492,6 +492,11 @@ class TestBudgetTrackingProviderChat:
             await BudgetTrackingProvider(inner, meter).chat([{"role": "user", "content": "hi"}])
         assert meter.spent() == Decimal("1.00")
 
+    async def test_chat_forwards_seed(self) -> None:
+        wrapper, _, inner = _make_wrapped()
+        await wrapper.chat([{"role": "user", "content": "test"}], seed=5)
+        assert inner.calls[0]["seed"] == 5
+
 
 # ---------------------------------------------------------------------------
 # Model id normalization and the pricing table (docs/DECISIONS.md#adr-cloud-retry)

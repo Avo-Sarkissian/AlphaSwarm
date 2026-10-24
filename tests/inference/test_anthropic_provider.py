@@ -613,3 +613,12 @@ async def test_transient_preflight_failure_does_not_block() -> None:
     provider, messages = _scripted_provider([_status_error(anthropic.OverloadedError, 529, "overloaded")])
     await provider.prepare()
     assert len(messages.calls) == 3  # one attempt plus two preflight retries
+
+
+async def test_seed_is_accepted_and_not_sent() -> None:
+    """The Messages API has no sampling seed; the keyword must not reach the client."""
+    resp = _FakeResponse(content=[_FakeTextBlock(text="ok")])
+    p, fake_client = _make_provider(resp)
+    await p.chat(_MSG, seed=99)
+
+    assert "seed" not in fake_client.messages.last_kwargs

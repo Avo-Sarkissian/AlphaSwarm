@@ -209,6 +209,7 @@ class AnthropicProvider:
         json_mode: bool = False,
         temperature: float | None = None,
         max_tokens: int | None = None,
+        seed: int | None = None,
     ) -> InferenceResult:
         """Call the Anthropic Messages API and return a normalised result.
 
@@ -221,6 +222,8 @@ class AnthropicProvider:
         - No schema → concatenate all text blocks from response.
         - ``temperature`` omitted when None; ``max_tokens`` falls back to
           ``max_tokens_default`` when caller omits it.
+        - ``seed`` is accepted for the protocol and ignored: the Messages API has
+          no sampling seed (docs/DECISIONS.md#adr-run-manifest).
 
         Retry policy: see ``_call_with_retry`` (docs/DECISIONS.md#adr-cloud-retry).
 

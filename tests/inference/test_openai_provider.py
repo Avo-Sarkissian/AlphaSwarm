@@ -676,3 +676,32 @@ async def test_transient_preflight_failure_does_not_block(monkeypatch: pytest.Mo
         "cloud_preflight_inconclusive"
     ]
     assert len(seen) == 1 + 1 + 2  # listing, completion, two preflight retries
+
+
+# ---------------------------------------------------------------------------
+# seed in the request body (docs/DECISIONS.md#adr-run-manifest)
+# ---------------------------------------------------------------------------
+
+
+async def test_seed_is_sent_in_the_body() -> None:
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return _200('{"signal": "buy"}')
+
+    await _make_provider(handler).chat(_MSG, seed=77)
+
+    assert bodies[0]["seed"] == 77
+
+
+async def test_no_seed_key_without_a_seed() -> None:
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(json.loads(request.content))
+        return _200('{"signal": "buy"}')
+
+    await _make_provider(handler).chat(_MSG)
+
+    assert "seed" not in bodies[0]
