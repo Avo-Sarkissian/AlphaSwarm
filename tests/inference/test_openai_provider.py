@@ -15,8 +15,9 @@ from typing import Any
 import httpx
 import pytest
 
-from alphaswarm.errors import AuthError, InferenceError
+from alphaswarm.errors import AuthError, InferenceError, ProviderConfigError
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
+from alphaswarm.inference.retry import RetryPolicy
 from alphaswarm.inference.types import ProviderRole
 
 # ---------------------------------------------------------------------------
@@ -50,12 +51,21 @@ def _error(status: int, body: dict[str, Any] | None = None) -> httpx.Response:
     return httpx.Response(status, json=body or {})
 
 
+async def _no_sleep(seconds: float) -> None:
+    return None
+
+
+# Retries in unit tests never sleep for real.
+NO_WAIT = RetryPolicy(sleep=_no_sleep)
+
+
 def _make_provider(
     handler: Any,
     *,
     model: str = "gpt-4o",
     max_retries: int = 3,
     extra_headers: dict[str, str] | None = None,
+    retry_policy: RetryPolicy = NO_WAIT,
 ) -> OpenAICompatProvider:
     transport = httpx.MockTransport(handler)
     client = httpx.AsyncClient(transport=transport)
@@ -65,6 +75,7 @@ def _make_provider(
         **_PROVIDER_KWARGS,
         max_retries=max_retries,
         extra_headers=extra_headers,
+        retry_policy=retry_policy,
         client=client,
     )
 
@@ -322,12 +333,10 @@ async def test_400_not_schema_related_raises_inference_error() -> None:
 
 
 async def test_strict_downgrade_inner_retry_transport_error_raises_inference_error() -> None:
-    """Strict-downgrade inner retry hitting a transport error → InferenceError (not raw httpx).
+    """A transport error after the strict downgrade is retried like any other.
 
-    Scenario:
-      - First POST returns 400 indicating json_schema/response_format unsupported.
-      - Second POST (json_object fallback) raises httpx.ConnectError (a TransportError).
-    Expected: InferenceError is raised — not a bare httpx exception, not an infinite loop.
+    Call 1: 400 naming json_schema -> downgrade (outside the retry budget).
+    Calls 2-5: ConnectError, retried max_retries=3 times, then InferenceError.
     """
     call_count: list[int] = [0]
 
@@ -348,14 +357,15 @@ async def test_strict_downgrade_inner_retry_transport_error_raises_inference_err
         "gpt-4o",
         **_PROVIDER_KWARGS,
         max_retries=3,
+        retry_policy=NO_WAIT,
         client=client,
     )
 
     with pytest.raises(InferenceError):
         await p.chat(_MSG, response_schema=_SCHEMA)
 
-    # Exactly 2 calls: the 400 and the transport-error retry
-    assert call_count[0] == 2
+    # The downgrade plus 1 + 3 transport attempts (docs/DECISIONS.md#adr-cloud-retry).
+    assert call_count[0] == 5
 
 
 # ---------------------------------------------------------------------------
@@ -421,10 +431,10 @@ async def test_persistent_429_raises_inference_error() -> None:
 
 
 async def test_500_raises_inference_error_after_retries(instant_sleep: list[float]) -> None:
-    p = _make_provider(lambda req: _error(500), max_retries=1)
+    p = _make_provider(lambda req: _error(500), max_retries=1, retry_policy=RetryPolicy(rng=lambda: 1.0))
     with pytest.raises(InferenceError):
         await p.chat(_MSG)
-    assert instant_sleep == [1.0]  # 2**0 back-off before the single retry
+    assert instant_sleep == [1.0]  # full-jitter ceiling for the first retry is 1 s
 
 
 # ---------------------------------------------------------------------------
@@ -444,3 +454,139 @@ async def test_extra_headers_forwarded() -> None:
 
     assert captured_headers[0].get("x-custom") == "value123"
     assert "Bearer test-key" in captured_headers[0].get("authorization", "")
+
+
+# ---------------------------------------------------------------------------
+# Retry classification (docs/DECISIONS.md#adr-cloud-retry)
+# ---------------------------------------------------------------------------
+
+_NOT_FOUND = httpx.Response(
+    404,
+    json={
+        "error": {
+            "message": "The model `typo-model` does not exist or you do not have access to it.",
+            "code": "model_not_found",
+        }
+    },
+)
+
+
+def _replay(items: list[httpx.Response | Exception]) -> tuple[Any, list[httpx.Request]]:
+    """Handler that answers with ``items`` in order (the last one repeats)."""
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        item = items[min(len(seen), len(items)) - 1]
+        if isinstance(item, Exception):
+            raise item
+        return item
+
+    return handler, seen
+
+
+def _recording(slept: list[float]) -> RetryPolicy:
+    async def _sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    return RetryPolicy(sleep=_sleep, rng=lambda: 1.0)
+
+
+async def test_404_is_a_provider_config_error_and_not_retried() -> None:
+    """A wrong model id fails on the first call, with the server's reason."""
+    handler, seen = _replay([_NOT_FOUND])
+    p = _make_provider(handler, model="typo-model", max_retries=8)
+    with pytest.raises(ProviderConfigError) as exc_info:
+        await p.chat(_MSG)
+    assert len(seen) == 1
+    assert exc_info.value.status_code == 404
+    assert "does not exist" in str(exc_info.value)
+
+
+@pytest.mark.parametrize("status", [400, 422])
+async def test_non_schema_400_and_422_are_config_errors(status: int) -> None:
+    body = {"error": {"message": "Unrecognized request argument supplied: foo"}}
+    handler, seen = _replay([httpx.Response(status, json=body)])
+    p = _make_provider(handler, max_retries=8)
+    with pytest.raises(ProviderConfigError):
+        await p.chat(_MSG)
+    assert len(seen) == 1
+
+
+async def test_context_length_400_is_a_per_call_error() -> None:
+    """An oversized prompt is one failed call (InferenceError), not a stopped run."""
+    body = {
+        "error": {
+            "code": "context_length_exceeded",
+            "message": "This model's maximum context length is 128000 tokens.",
+        }
+    }
+    handler, seen = _replay([httpx.Response(400, json=body)])
+    p = _make_provider(handler, max_retries=8)
+    with pytest.raises(InferenceError) as exc_info:
+        await p.chat(_MSG)
+    assert not isinstance(exc_info.value, ProviderConfigError)
+    assert len(seen) == 1
+
+
+async def test_timeouts_are_not_retried() -> None:
+    handler, seen = _replay([httpx.ReadTimeout("read timed out")])
+    p = _make_provider(handler, max_retries=8)
+    with pytest.raises(InferenceError, match="timed out"):
+        await p.chat(_MSG)
+    assert len(seen) == 1
+
+
+async def test_connection_errors_retry_with_capped_jittered_backoff() -> None:
+    slept: list[float] = []
+    handler, seen = _replay([httpx.ConnectError("refused"), httpx.ConnectError("refused"), _200("ok")])
+    p = _make_provider(handler, retry_policy=_recording(slept))
+    assert (await p.chat(_MSG)).content == "ok"
+    assert len(seen) == 3
+    assert slept == [1.0, 2.0]
+
+
+async def test_backoff_stays_capped_at_eight_retries() -> None:
+    """The old loop slept 2**attempt: 255 s in total at the NIM setting max_retries=8."""
+    slept: list[float] = []
+    handler, seen = _replay([_error(503)])
+    p = _make_provider(handler, max_retries=8, retry_policy=_recording(slept))
+    with pytest.raises(InferenceError):
+        await p.chat(_MSG)
+    assert len(seen) == 9
+    assert slept == [1.0, 2.0, 4.0, 8.0, 16.0, 30.0, 30.0, 30.0]
+
+
+@pytest.mark.parametrize("status", [408, 409, 429, 500, 502, 503, 529])
+async def test_transient_statuses_are_retried(status: int) -> None:
+    handler, seen = _replay([_error(status), _200("ok")])
+    p = _make_provider(handler)
+    assert (await p.chat(_MSG)).content == "ok"
+    assert len(seen) == 2
+
+
+async def test_retry_after_is_honoured_on_503() -> None:
+    slept: list[float] = []
+    handler, _ = _replay([httpx.Response(503, headers={"Retry-After": "7"}, json={}), _200("ok")])
+    p = _make_provider(handler, retry_policy=_recording(slept))
+    await p.chat(_MSG)
+    assert slept == [7.0]
+
+
+async def test_malformed_200_body_is_an_inference_error() -> None:
+    handler, _ = _replay([httpx.Response(200, content=b"<html>gateway hiccup</html>")])
+    p = _make_provider(handler)
+    with pytest.raises(InferenceError, match="Malformed response body"):
+        await p.chat(_MSG)
+
+
+async def test_malformed_choice_keeps_the_billed_tokens() -> None:
+    body = {
+        "choices": [{"finish_reason": "stop"}],
+        "usage": {"prompt_tokens": 1200, "completion_tokens": 40},
+    }
+    handler, _ = _replay([httpx.Response(200, json=body)])
+    p = _make_provider(handler)
+    with pytest.raises(InferenceError) as exc_info:
+        await p.chat(_MSG)
+    assert (exc_info.value.input_tokens, exc_info.value.output_tokens) == (1200, 40)
