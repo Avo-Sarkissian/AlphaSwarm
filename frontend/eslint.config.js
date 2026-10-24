@@ -1,7 +1,7 @@
 // ESLint flat config.
 // - typescript-eslint and react-hooks rules are errors, except the two React
 //   Compiler rules below: they flag legacy components that are rewritten later.
-// - jsx-a11y runs at `warn` until the accessibility pass promotes it to `error`.
+// - jsx-a11y runs its recommended rule set at the recommended levels (errors).
 // - ESLint stays on 9.x because eslint-plugin-jsx-a11y 6.10 supports eslint <= 9.
 import js from '@eslint/js';
 import globals from 'globals';
@@ -9,9 +9,6 @@ import tseslint from 'typescript-eslint';
 import reactHooks from 'eslint-plugin-react-hooks';
 import jsxA11y from 'eslint-plugin-jsx-a11y';
 
-const a11yAsWarnings = Object.fromEntries(
-  Object.keys(jsxA11y.flatConfigs.recommended.rules ?? {}).map((rule) => [rule, 'warn']),
-);
 
 export default tseslint.config(
   { ignores: ['dist/**', 'design-reference/**', 'reports/**', '**/* [0-9].*'] },
@@ -30,7 +27,7 @@ export default tseslint.config(
       'react-hooks/exhaustive-deps': 'error',
       'react-hooks/set-state-in-effect': 'warn',
       'react-hooks/refs': 'warn',
-      ...a11yAsWarnings,
+      ...jsxA11y.flatConfigs.recommended.rules,
       'no-console': 'warn',
       '@typescript-eslint/no-unused-vars': [
         'error',
