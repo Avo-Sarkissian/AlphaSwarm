@@ -174,10 +174,10 @@ use the 5-event subset × 3 seeds. Hours per phase come from
 complete cycles' `total_seconds`, `seed_seconds` and `agent_count`); the table is recorded
 here before the first evaluation cycle.
 
-Not run yet.
+No runs recorded: the event set, fixtures, labels and evaluation cycles are prepared and run on the reference machine.
 
 ## P7.8 — Ablations
 
 Protocol: `docs/methodology.md` §9. Reproduce with `uv run python eval/run_eval.py ablations`.
 
-Not run yet.
+No runs recorded: the ablation cycles run on the reference machine after the accuracy runs.
