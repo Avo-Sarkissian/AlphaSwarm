@@ -1,8 +1,9 @@
 """Budget tracking, pricing table, and run estimator for cloud inference.
 
 All monetary values are Python ``Decimal`` to avoid floating-point drift.
-Prices in DEFAULT_PRICING are approximate public USD-per-1M-token values as of
-mid-2025; they are best-effort and user-overridable via InferenceConfig.pricing_overrides.
+Prices in DEFAULT_PRICING are vendor list prices checked on PRICING_VERIFIED_AT
+(a test fails once that check is older than PRICING_MAX_AGE_DAYS); any entry is
+user-overridable via InferenceConfig.pricing_overrides.
 
 Also provides ``BudgetTrackingProvider``: a thin InferenceProvider wrapper that
 records every call's token cost in a shared BudgetMeter and enforces the USD cap
@@ -13,9 +14,12 @@ even those that bypass the RateLimitController.
 
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 import structlog
 
@@ -32,62 +36,83 @@ log = structlog.get_logger(component="inference.budget")
 # Default pricing table
 # ---------------------------------------------------------------------------
 
-# Values are approximate USD per 1M tokens (input / output).
-# Sources: public provider pricing pages, accurate as of mid-2025.
-# User can override any entry via InferenceConfig.pricing_overrides.
+
+def _price(input_per_mtok: str, output_per_mtok: str) -> ModelPrice:
+    return ModelPrice(input_per_mtok=Decimal(input_per_mtok), output_per_mtok=Decimal(output_per_mtok))
+
+
+# Standard list prices in USD per 1M tokens (input, output): non-batch, uncached,
+# prompts up to 200K tokens. Keys are normalized ids (no date suffix);
+# resolve_price() maps dated and versioned ids onto them. Premium "-pro" variants
+# are not listed: add a pricing_overrides entry before using one
+# (docs/DECISIONS.md#adr-cloud-retry).
+PRICING_VERIFIED_AT: Final[date] = date(2026, 10, 8)
+PRICING_MAX_AGE_DAYS: Final = 180
+
 DEFAULT_PRICING: dict[str, ModelPrice] = {
-    # Anthropic
-    "claude-opus-4-5": ModelPrice(
-        input_per_mtok=Decimal("15.00"),
-        output_per_mtok=Decimal("75.00"),
-    ),
-    "claude-sonnet-4-5": ModelPrice(
-        input_per_mtok=Decimal("3.00"),
-        output_per_mtok=Decimal("15.00"),
-    ),
-    "claude-haiku-4-5": ModelPrice(
-        input_per_mtok=Decimal("0.80"),
-        output_per_mtok=Decimal("4.00"),
-    ),
-    "claude-3-5-sonnet-20241022": ModelPrice(
-        input_per_mtok=Decimal("3.00"),
-        output_per_mtok=Decimal("15.00"),
-    ),
-    "claude-3-5-haiku-20241022": ModelPrice(
-        input_per_mtok=Decimal("0.80"),
-        output_per_mtok=Decimal("4.00"),
-    ),
-    # OpenAI
-    "gpt-4o": ModelPrice(
-        input_per_mtok=Decimal("2.50"),
-        output_per_mtok=Decimal("10.00"),
-    ),
-    "gpt-4o-mini": ModelPrice(
-        input_per_mtok=Decimal("0.15"),
-        output_per_mtok=Decimal("0.60"),
-    ),
-    "o1": ModelPrice(
-        input_per_mtok=Decimal("15.00"),
-        output_per_mtok=Decimal("60.00"),
-    ),
-    "o3-mini": ModelPrice(
-        input_per_mtok=Decimal("1.10"),
-        output_per_mtok=Decimal("4.40"),
-    ),
-    # OpenRouter-style aliases (common community models)
-    "meta-llama/llama-3.3-70b-instruct": ModelPrice(
-        input_per_mtok=Decimal("0.12"),
-        output_per_mtok=Decimal("0.30"),
-    ),
-    "mistralai/mistral-large-2411": ModelPrice(
-        input_per_mtok=Decimal("2.00"),
-        output_per_mtok=Decimal("6.00"),
-    ),
-    "google/gemini-2.0-flash-001": ModelPrice(
-        input_per_mtok=Decimal("0.10"),
-        output_per_mtok=Decimal("0.40"),
-    ),
+    # Anthropic (anthropic.com/pricing)
+    "claude-opus-4-5": _price("5.00", "25.00"),
+    "claude-opus-4-1": _price("15.00", "75.00"),
+    "claude-opus-4": _price("15.00", "75.00"),
+    "claude-sonnet-4-5": _price("3.00", "15.00"),
+    "claude-sonnet-4": _price("3.00", "15.00"),
+    "claude-haiku-4-5": _price("1.00", "5.00"),
+    "claude-3-5-haiku": _price("0.80", "4.00"),
+    "claude-3-5-sonnet": _price("3.00", "15.00"),
+    # OpenAI (openai.com/api/pricing)
+    "gpt-5": _price("1.25", "10.00"),
+    "gpt-5-mini": _price("0.25", "2.00"),
+    "gpt-5-nano": _price("0.05", "0.40"),
+    "gpt-4.1": _price("2.00", "8.00"),
+    "gpt-4.1-mini": _price("0.40", "1.60"),
+    "gpt-4.1-nano": _price("0.10", "0.40"),
+    "gpt-4o": _price("2.50", "10.00"),
+    "gpt-4o-mini": _price("0.15", "0.60"),
+    "o1": _price("15.00", "60.00"),
+    "o3": _price("2.00", "8.00"),
+    "o3-mini": _price("1.10", "4.40"),
+    "o4-mini": _price("1.10", "4.40"),
+    # OpenRouter-style ids (openrouter.ai/models; the listed price for the id)
+    "meta-llama/llama-3.3-70b-instruct": _price("0.13", "0.40"),
+    "mistralai/mistral-large-2411": _price("2.00", "6.00"),
+    "google/gemini-2.0-flash-001": _price("0.10", "0.40"),
+    "google/gemini-2.5-flash": _price("0.30", "2.50"),
+    "google/gemini-2.5-pro": _price("1.25", "10.00"),
 }
+
+# A dated snapshot suffix: -20251001 (Anthropic) or -2024-07-18 (OpenAI).
+_DATE_SUFFIX: Final = re.compile(r"-(?:\d{8}|\d{4}-\d{2}-\d{2})$")
+# What may follow a table key for the key's price to apply: a version number
+# ("-6", "-4.1") or a tag (":free", "@2025"), never another word ("-pro", "-mini").
+_VERSION_SUFFIX: Final = re.compile(r"(?:-\d[\w.-]*|[:@][\w.-]+)")
+
+
+def normalize_model_id(model: str) -> str:
+    """Strip a dated snapshot suffix: claude-haiku-4-5-20251001 -> claude-haiku-4-5."""
+    return _DATE_SUFFIX.sub("", model.strip())
+
+
+def resolve_price(pricing: Mapping[str, ModelPrice], model: str) -> tuple[str, ModelPrice] | None:
+    """(matched key, price) for ``model``, or None when it is unpriced.
+
+    Order: the exact id (so a dated override wins), the normalized id, then the
+    longest key that the normalized id extends only by a version suffix.
+    """
+    if model in pricing:
+        return model, pricing[model]
+    normalized = normalize_model_id(model)
+    if normalized in pricing:
+        return normalized, pricing[normalized]
+    best: str | None = None
+    for key in pricing:
+        if (
+            normalized.startswith(key)
+            and _VERSION_SUFFIX.fullmatch(normalized[len(key) :]) is not None
+            and (best is None or len(key) > len(best))
+        ):
+            best = key
+    return (best, pricing[best]) if best is not None else None
+
 
 _CENTS = Decimal("0.01")
 _MTOK = Decimal("1000000")
@@ -140,17 +165,22 @@ class BudgetMeter:
     pricing:
         Mapping of model id → ModelPrice.  Typically DEFAULT_PRICING merged
         with InferenceConfig.pricing_overrides.
+    warn_unpriced:
+        False for estimates, which run on every Settings request.
     """
 
     def __init__(
         self,
         cap_usd: Decimal | None,
         pricing: dict[str, ModelPrice],
+        *,
+        warn_unpriced: bool = True,
     ) -> None:
         self._cap = cap_usd
         self._pricing = pricing
         self._total: Decimal = Decimal(0)
         self._warned_unknown: set[str] = set()
+        self._warn_unpriced = warn_unpriced
         # Conservative ceiling for an unpriced model under a cap (F-18). The
         # table is immutable, so compute once. Floored at the opus-tier fallback
         # so the ceiling is never *below* a realistic price even if the table is
@@ -171,12 +201,12 @@ class BudgetMeter:
     # ------------------------------------------------------------------
 
     def _cost_of(self, model: str, in_tokens: int, out_tokens: int) -> Decimal:
-        price = self._pricing.get(model)
-        if price is None:
+        match = resolve_price(self._pricing, model)
+        if match is None:
             # Unknown model: $0 is only safe for uncapped runs. With a cap set,
-            # treating it as free would make the cap silently unenforceable
-            # (F-18), so price it at a conservative ceiling instead.
-            if model not in self._warned_unknown:
+            # treating it as free would make the cap silently unenforceable, so
+            # price it at a conservative ceiling instead (docs/DECISIONS.md#adr-cloud-retry).
+            if self._warn_unpriced and model not in self._warned_unknown:
                 # Add an entry to DEFAULT_PRICING or InferenceConfig.pricing_overrides.
                 log.warning(
                     "budget_model_unpriced",
@@ -187,6 +217,12 @@ class BudgetMeter:
             if self._cap is None:
                 return Decimal(0)
             price = self._unknown_price
+        else:
+            key, price = match
+            inferred = key not in (model, normalize_model_id(model))
+            if inferred and self._warn_unpriced and model not in self._warned_unknown:
+                log.info("budget_model_price_inferred", model=model, priced_as=key)
+                self._warned_unknown.add(model)
         return Decimal(in_tokens) / _MTOK * price.input_per_mtok + Decimal(out_tokens) / _MTOK * price.output_per_mtok
 
     # ------------------------------------------------------------------
@@ -274,10 +310,11 @@ def estimate_run(
     def _call_cost(model: str, provider: ProviderType, n: int) -> Decimal:
         if provider == ProviderType.OLLAMA:
             return Decimal(0)
-        mp = resolved.get(model)
-        if mp is None:
+        match = resolve_price(resolved, model)
+        if match is None:
             log.warning("estimate_model_unpriced", model=model)
             return Decimal(0)
+        mp = match[1]
         per_call = Decimal(avg_in) / _MTOK * mp.input_per_mtok + Decimal(avg_out) / _MTOK * mp.output_per_mtok
         return per_call * n
 

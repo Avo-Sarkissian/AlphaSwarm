@@ -1,5 +1,6 @@
 """Tests for BudgetMeter, BudgetTrackingProvider, DEFAULT_PRICING, and estimate_run."""
 
+from datetime import date
 from decimal import Decimal
 
 import pytest
@@ -7,10 +8,14 @@ import pytest
 from alphaswarm.errors import BudgetExceededError
 from alphaswarm.inference.budget import (
     DEFAULT_PRICING,
+    PRICING_MAX_AGE_DAYS,
+    PRICING_VERIFIED_AT,
     BudgetMeter,
     BudgetTrackingProvider,
     RunEstimate,
     estimate_run,
+    normalize_model_id,
+    resolve_price,
 )
 from alphaswarm.inference.config import InferenceConfig, ModelPrice, ProviderType, RoleConfig
 from alphaswarm.inference.provider import InferenceProvider
@@ -458,3 +463,89 @@ class TestBudgetTrackingProviderChat:
         for _ in range(3):
             await wrapper.chat([{"role": "user", "content": "x"}])
         assert meter.spent() == Decimal("9.00")
+
+
+# ---------------------------------------------------------------------------
+# Model id normalization and the pricing table (docs/DECISIONS.md#adr-cloud-retry)
+# ---------------------------------------------------------------------------
+
+
+def _mp(input_per_mtok: str, output_per_mtok: str) -> ModelPrice:
+    return ModelPrice(input_per_mtok=Decimal(input_per_mtok), output_per_mtok=Decimal(output_per_mtok))
+
+
+class TestModelIdNormalization:
+    @pytest.mark.parametrize(
+        ("raw", "normalized"),
+        [
+            ("claude-haiku-4-5-20251001", "claude-haiku-4-5"),
+            ("claude-3-5-haiku-20241022", "claude-3-5-haiku"),
+            ("gpt-4o-mini-2024-07-18", "gpt-4o-mini"),
+            ("gpt-4o", "gpt-4o"),
+            ("meta/llama-3.1-8b-instruct", "meta/llama-3.1-8b-instruct"),
+        ],
+    )
+    def test_dated_suffixes_are_stripped(self, raw: str, normalized: str) -> None:
+        assert normalize_model_id(raw) == normalized
+
+    def test_dated_ids_resolve_to_the_base_price(self) -> None:
+        match = resolve_price(DEFAULT_PRICING, "claude-haiku-4-5-20251001")
+        assert match == ("claude-haiku-4-5", DEFAULT_PRICING["claude-haiku-4-5"])
+
+    def test_longest_prefix_wins_for_version_suffixes(self) -> None:
+        pricing = {"claude-opus-4": _mp("15", "75"), "claude-opus-4-5": _mp("5", "25")}
+        assert resolve_price(pricing, "claude-opus-4-5-20251101") == ("claude-opus-4-5", pricing["claude-opus-4-5"])
+        assert resolve_price(pricing, "claude-opus-4-7") == ("claude-opus-4", pricing["claude-opus-4"])
+
+    def test_a_different_product_is_not_a_version(self) -> None:
+        """o1-pro costs 10x o1: a bare prefix match would under-price it under a cap."""
+        assert resolve_price({"o1": _mp("15", "60")}, "o1-pro") is None
+        assert resolve_price({"gpt-4o": _mp("2.50", "10")}, "gpt-4o-audio-preview") is None
+
+    def test_tags_after_a_colon_are_versions(self) -> None:
+        pricing = {"meta-llama/llama-3.3-70b-instruct": _mp("0.13", "0.40")}
+        assert resolve_price(pricing, "meta-llama/llama-3.3-70b-instruct:free") is not None
+
+    def test_an_exact_override_with_a_dated_id_wins(self) -> None:
+        pricing = {"claude-haiku-4-5": _mp("1", "5"), "claude-haiku-4-5-20251001": _mp("2", "10")}
+        match = resolve_price(pricing, "claude-haiku-4-5-20251001")
+        assert match is not None and match[0] == "claude-haiku-4-5-20251001"
+
+    def test_the_meter_prices_a_dated_id_like_its_base_model(self) -> None:
+        meter = BudgetMeter(cap_usd=None, pricing=dict(DEFAULT_PRICING))
+        cost = meter.record("claude-haiku-4-5-20251001", 1_000_000, 0)
+        assert cost == DEFAULT_PRICING["claude-haiku-4-5"].input_per_mtok
+
+    def test_an_inferred_price_is_logged_once(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        import structlog
+        from structlog.testing import capture_logs
+
+        import alphaswarm.inference.budget as budget_module
+
+        monkeypatch.setattr(budget_module, "log", structlog.get_logger(component="inference.budget"))
+        meter = BudgetMeter(cap_usd=None, pricing={"claude-opus-4": _mp("15", "75")})
+        with capture_logs() as logs:
+            meter.record("claude-opus-4-7", 10, 10)
+            meter.record("claude-opus-4-7", 10, 10)
+        inferred = [e for e in logs if e["event"] == "budget_model_price_inferred"]
+        assert [(e["model"], e["priced_as"]) for e in inferred] == [("claude-opus-4-7", "claude-opus-4")]
+
+
+class TestPricingTable:
+    def test_pricing_table_was_verified_recently(self) -> None:
+        """Re-check the vendor pages (docs/RUNBOOK.md, cloud mode) and bump the date."""
+        age = (date.today() - PRICING_VERIFIED_AT).days
+        assert 0 <= age <= PRICING_MAX_AGE_DAYS, (
+            f"DEFAULT_PRICING was last verified {age} days ago; re-check the vendor pricing "
+            "pages and update PRICING_VERIFIED_AT in src/alphaswarm/inference/budget.py"
+        )
+
+    def test_keys_are_normalized(self) -> None:
+        assert all(normalize_model_id(key) == key for key in DEFAULT_PRICING)
+
+    def test_haiku_4_5_is_no_longer_priced_like_haiku_3_5(self) -> None:
+        assert DEFAULT_PRICING["claude-haiku-4-5"].input_per_mtok > DEFAULT_PRICING["claude-3-5-haiku"].input_per_mtok
+
+    def test_unknown_model_ceiling_is_unchanged_by_the_refresh(self) -> None:
+        meter = BudgetMeter(cap_usd=Decimal("100"), pricing=dict(DEFAULT_PRICING))
+        assert meter.record("unknown-model-xyz", 1_000_000, 1_000_000) == Decimal("90.00")
