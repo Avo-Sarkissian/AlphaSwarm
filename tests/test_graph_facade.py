@@ -128,6 +128,7 @@ OUTAGE_CALLS: dict[str, Call] = {
     "read_latest_cycle_id": lambda gm: gm.read_latest_cycle_id(),
     "read_persona_trait_seed": lambda gm: gm.read_persona_trait_seed(CYCLE_ID),
     "read_rationale_entries_for_round": lambda gm: gm.read_rationale_entries_for_round(CYCLE_ID, 1),
+    "read_round_citations": lambda gm: gm.read_round_citations(CYCLE_ID, 2),
     "read_round_timeline": lambda gm: gm.read_round_timeline(CYCLE_ID),
     "read_shock_event": lambda gm: gm.read_shock_event(CYCLE_ID),
     "read_shock_impact": lambda gm: gm.read_shock_impact(CYCLE_ID),
@@ -212,6 +213,7 @@ DELEGATES: dict[str, str] = {
     "read_influence_edges": "analytics",
     "read_influence_leaders": "analytics",
     "read_key_dissenters": "analytics",
+    "read_round_citations": "analytics",
     "read_round_timeline": "analytics",
     "read_shock_event": "analytics",
     "read_shock_impact": "analytics",
@@ -296,7 +298,8 @@ MANAGER = SRC / "graph" / "manager.py"
 
 
 def test_facade_stays_small() -> None:
-    assert len(MANAGER.read_text(encoding="utf-8").splitlines()) <= 310
+    # 320: the export/delete delegations and _auto_commit (docs/DECISIONS.md#adr-cycle-export)
+    assert len(MANAGER.read_text(encoding="utf-8").splitlines()) <= 320
 
 
 def test_manager_keeps_no_transaction_functions() -> None:

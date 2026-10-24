@@ -34,11 +34,13 @@ __all__ = [
     "PersistRoundResult",
     "PivotAgentRow",
     "RationaleRoundRow",
+    "RoundCitationRow",
     "RoundTimelineRow",
     "ShockEventRow",
     "ShockImpactRow",
     "SignalFlipRow",
     "TxRunner",
+    "UNKNOWN_SIGNAL",
 ]
 
 T = TypeVar("T")
@@ -147,6 +149,22 @@ class InfluenceEdgeRow(TypedDict):
     source_id: str  # citing agent
     target_id: str  # cited agent
     weight: float
+
+
+#: cited_signal when the cited agent has no decision in the previous round.
+UNKNOWN_SIGNAL: Final = "unknown"
+
+
+class RoundCitationRow(TypedDict):
+    """One distinct (citing, cited) pair of a round (docs/DECISIONS.md#adr-neo4j-schema).
+
+    cited_signal is the cited agent's signal in the previous round, i.e. what the
+    citing agent saw, or UNKNOWN_SIGNAL when there is none.
+    """
+
+    source_id: str
+    target_id: str
+    cited_signal: str
 
 
 class CompletedCycleRow(TypedDict):

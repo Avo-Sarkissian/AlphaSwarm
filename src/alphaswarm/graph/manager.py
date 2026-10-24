@@ -44,6 +44,7 @@ if TYPE_CHECKING:
         KeyDissenterRow,
         PersistRoundResult,
         RationaleRoundRow,
+        RoundCitationRow,
         RoundTimelineRow,
         ShockEventRow,
         ShockImpactRow,
@@ -263,6 +264,9 @@ class GraphStateManager:
 
     async def read_influence_edges(self, cycle_id: str, round_num: int) -> list[InfluenceEdgeRow]:
         return await analytics.read_influence_edges(self._read, cycle_id, round_num)
+
+    async def read_round_citations(self, cycle_id: str, round_num: int) -> list[RoundCitationRow]:
+        return await analytics.read_round_citations(self._read, cycle_id, round_num)
 
     # --- replay, interview and cycle lookups (graph/replay_interview.py) ---
 

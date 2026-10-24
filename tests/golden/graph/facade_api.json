@@ -25,6 +25,7 @@
   "read_latest_cycle_id": "(self, *, statuses: 'Collection[CycleStatus]' = ('complete',)) -> 'str | None'",
   "read_persona_trait_seed": "(self, cycle_id: 'str') -> 'int | None'",
   "read_rationale_entries_for_round": "(self, cycle_id: 'str', round_num: 'int', limit: 'int' = 10) -> 'list[RationaleRoundRow]'",
+  "read_round_citations": "(self, cycle_id: 'str', round_num: 'int') -> 'list[RoundCitationRow]'",
   "read_round_timeline": "(self, cycle_id: 'str') -> 'list[RoundTimelineRow]'",
   "read_shock_event": "(self, cycle_id: 'str') -> 'ShockEventRow | None'",
   "read_shock_impact": "(self, cycle_id: 'str') -> 'ShockImpactRow'",

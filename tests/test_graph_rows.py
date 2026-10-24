@@ -106,6 +106,7 @@ ROWS_MODULE_NAMES = (
     "KeyDissenterRow",
     "PersistRoundResult",
     "RationaleRoundRow",
+    "RoundCitationRow",
     "RoundTimelineRow",
     "SignalFlipRow",
 )
