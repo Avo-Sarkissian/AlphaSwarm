@@ -22,13 +22,21 @@ export type AdvisorySignal = 'BUY' | 'SELL' | 'HOLD';
 
 export interface AdvisoryItemPayload {
   ticker: string;
-  consensus_signal: AdvisorySignal;
+  consensus_signal: AdvisorySignal; // swarm signal when evidence suffices, else the orchestrator's
   confidence: number;
   rationale_summary: string;
-  position_exposure: string | number;
+  cost_basis_exposure?: string | number; // aggregated cost basis, not market value
+  position_exposure?: string | number; // same value in files written before the rename
   source?: 'swarm' | 'placeholder'; // absent in files written before placeholders were marked
   risk?: string | null;
   upside?: string | null;
+  // Swarm evidence (docs/DECISIONS.md#adr-grounded-advisory); absent in older files.
+  swarm_signal?: AdvisorySignal | null;
+  swarm_support?: number;
+  swarm_sentiment?: number | null;
+  evidence_agent_ids?: string[];
+  llm_signal?: AdvisorySignal | null;
+  divergent?: boolean;
 }
 
 export interface AdvisoryStatsPayload {
@@ -40,6 +48,8 @@ export interface AdvisoryStatsPayload {
   avg_confidence: number | null;
   dominant_signal: AdvisorySignal | null;
   dominant_share: number | null;
+  divergent_count?: number;
+  evidence_count?: number;
 }
 
 export interface AdvisoryReportPayload extends AdvisoryContent {

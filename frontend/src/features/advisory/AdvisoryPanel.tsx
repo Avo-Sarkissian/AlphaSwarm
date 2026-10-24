@@ -1,7 +1,6 @@
 // Advisory panel: full-screen portfolio analysis for the cycle on screen.
-import { useState, useMemo } from 'react';
+import { useState, useMemo, type CSSProperties } from 'react';
 import { Icon } from '../../components/Icon';
-import { useAgents } from '../../context/AgentsContext';
 import { useFrameMeta } from '../../context/FrameMetaContext';
 import { useLatestCompletedCycle } from '../../hooks/useLatestCompletedCycle';
 import { useRounds } from '../../hooks/useRounds';
@@ -12,16 +11,25 @@ import { advisoryLine } from '../../lib/privacyCopy';
 import { advisoryFetch, type AdvisoryContent, type AdvisoryReportPayload } from '../../api/advisory';
 import { renderMarkdown } from '../../lib/markdown';
 import { AdvisoryDisclaimer } from './AdvisoryDisclaimer';
-import { parseOutlook, countAgentCitationsAgainst } from '../../lib/advisoryParse';
-import { isPlaceholder, overviewStats, recLabel } from '../../lib/advisoryView';
-import { AdvHoldingRow, AdvStat, type HoldingAnalysis } from './AdvisoryParts';
+import { parseOutlook } from '../../lib/advisoryParse';
+import { costBasisOf, evidenceLabel, holdingView, overviewStats, type HoldingView } from '../../lib/advisoryView';
+import { AdvHoldingRow, AdvStat } from './AdvisoryParts';
 
 // Derive what the backend supports and stub the rest (docs/DECISIONS.md#p41-6-d-08);
 // portfolio_outlook through renderMarkdown (docs/DECISIONS.md#p41-6-d-09); four
 // tabs (docs/DECISIONS.md#p41-6-d-10); "HOLDINGS AFFECTED" read from
-// affected_holdings/total_holdings (docs/DECISIONS.md#p41-6-d-22); citation
-// counts intersect with live agent ids. No advisory POST trigger: the backend
-// fires the synthesis on the final round.
+// affected_holdings/total_holdings (docs/DECISIONS.md#p41-6-d-22); per-holding
+// swarm evidence comes from the backend (docs/DECISIONS.md#adr-grounded-advisory).
+// No advisory POST trigger: the backend fires the synthesis on the final round.
+
+// Swarm sentiment fill, centred on the midline; grey stub when there is none.
+function sentimentFill(sentiment: number | null): CSSProperties {
+  if (sentiment === null) return { width: '0%', background: 'var(--text-3)', marginLeft: '50%' };
+  const width = Math.min(1, Math.abs(sentiment)) * 50;
+  return sentiment >= 0
+    ? { width: `${width}%`, background: 'var(--buy)', marginLeft: '50%' }
+    : { width: `${width}%`, background: 'var(--sell)', marginLeft: `${50 - width}%` };
+}
 
 export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
   const meta = useFrameMeta();
@@ -30,11 +38,6 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
   const cycleId = defaultCycleId(meta, latestCompleted);
   // No cycle yet only means "none completed" once the lookup has answered.
   const findingCycle = cycleId === null && latestLoading;
-  const { agents: liveAgents } = useAgents();
-  const liveAgentIds = useMemo(
-    () => new Set(liveAgents.map((a) => a.id)),
-    [liveAgents],
-  ); // used for the strict citation intersection
   const [tab, setTab] = useState<'overview' | 'holdings' | 'risk' | 'isolation'>(
     'overview',
   );
@@ -61,38 +64,13 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
   const isExhausted =
     polled.error !== null && /polling timed out/i.test(polled.error.message);
 
-  // Derive-or-stub (docs/DECISIONS.md#p41-6-d-08): build the holdingAnalysis array
-  const holdingAnalysis = useMemo<HoldingAnalysis[]>(() => {
-    if (!report?.items) return [];
-    const totalExposure = report.items.reduce(
-      (sum, item) => sum + Number(item.position_exposure || 0),
-      0,
-    );
-    return report.items.map((item) => {
-      const value = Number(item.position_exposure || 0);
-      const weight = totalExposure > 0 ? (value / totalExposure) * 100 : 0;
-      return {
-        ticker: item.ticker,
-        swarmSignal: item.consensus_signal,
-        recTone: item.consensus_signal.toLowerCase() as 'buy' | 'sell' | 'hold',
-        rec: recLabel(item.consensus_signal),
-        rationale: item.rationale_summary,
-        value,
-        weight,
-        // Strict intersection with live ids (docs/DECISIONS.md#kr-41-6-10)
-        agents: countAgentCitationsAgainst(item.rationale_summary, liveAgentIds),
-        // Stubbed (docs/DECISIONS.md#p41-6-d-08, docs/DECISIONS.md#kr-41-6-01):
-        shares: null,
-        basis: null,
-        last: null,
-        sentiment: 0,
-        // Written per item by the orchestrator; null when it gave none.
-        risk: item.risk ?? null,
-        upside: item.upside ?? null,
-        placeholder: isPlaceholder(item),
-      };
-    });
-  }, [report, liveAgentIds]);
+  // Swarm evidence comes from the backend (docs/DECISIONS.md#adr-grounded-advisory);
+  // no regex over prose, no live-agent intersection.
+  const holdingAnalysis = useMemo<HoldingView[]>(() => {
+    const items = report?.items ?? [];
+    const total = items.reduce((sum, item) => sum + costBasisOf(item), 0);
+    return items.map((item) => holdingView(item, total));
+  }, [report]);
 
   const outlook = useMemo(
     () => parseOutlook(report?.portfolio_outlook ?? ''),
@@ -103,7 +81,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
     [report],
   );
 
-  const totalValue = holdingAnalysis.reduce((a, h) => a + h.value, 0);
+  const totalCostBasis = holdingAnalysis.reduce((a, h) => a + h.costBasis, 0);
 
   // Stat derivations for the Overview row
   const totalHoldings = report?.total_holdings ?? 0;
@@ -234,8 +212,8 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
             <div className="adv-summary-stats">
               <AdvStat
                 label="PORTFOLIO"
-                value={`$${(totalValue / 1000).toFixed(0)}K`}
-                sub={`${totalHoldings} holdings`}
+                value={`$${(totalCostBasis / 1000).toFixed(0)}K`}
+                sub={`cost basis · ${totalHoldings} holdings`}
               />
               <AdvStat
                 label="HOLDINGS AFFECTED"
@@ -266,7 +244,7 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
                 SWARM VIEW ON YOUR HOLDINGS
               </div>
               {holdingAnalysis.map((h) => (
-                <AdvHoldingRow key={h.ticker} h={h} totalValue={totalValue} />
+                <AdvHoldingRow key={h.ticker} h={h} />
               ))}
             </div>
           </div>
@@ -302,33 +280,31 @@ export function AdvisoryPanel({ onClose }: { onClose: () => void }) {
                     )}
                   </div>
                   <div className="adv-hc-value">
-                    {/* Stubbed: last/shares are not on the backend (docs/DECISIONS.md#kr-41-6-01) */}
-                    <div className="adv-hc-val mono">{h.last ?? '—'}</div>
-                    <div className="label">
-                      {h.shares ?? '—'} sh · ${(h.value / 1000).toFixed(0)}K ·{' '}
-                      {h.weight.toFixed(1)}%
+                    {/* No market price: holdings are not priced (docs/DECISIONS.md#adr-grounded-advisory) */}
+                    <div className="adv-hc-val mono">—</div>
+                    <div className="label" title="Cost basis, not market value">
+                      cost basis ${(h.costBasis / 1000).toFixed(0)}K · {h.costBasisPct.toFixed(1)}%
                     </div>
                   </div>
                   <div className={`adv-hc-rec adv-rec-${h.recTone}`}>{h.rec}</div>
-                  <div className="adv-hc-agents label">{h.agents} agents cited</div>
+                  <div className="adv-hc-agents label" title={h.evidenceAgentIds.join(', ')}>
+                    {evidenceLabel(h)}
+                    {h.divergent ? ` · orchestrator read ${h.llmSignal}` : ''}
+                  </div>
                 </div>
-                {/* Sentiment bar — stubbed at 0 (docs/DECISIONS.md#kr-41-6-01); centred on the midline */}
+                {/* Sentiment bar: mean sentiment of the supporting agents, centred on the midline */}
                 <div className="adv-hc-sentiment">
                   <div className="adv-sentiment-bar">
                     <div
                       className="adv-sent-fill"
-                      style={{
-                        width: '0%',
-                        background: 'var(--text-3)',
-                        marginLeft: '50%',
-                      }}
+                      style={sentimentFill(h.swarmSentiment)}
                     />
                     <div className="adv-sent-center" />
                   </div>
                   <div className="adv-sent-label">
                     <span>BEARISH</span>
                     <span className="mono" style={{ color: 'var(--text-3)' }}>
-                      —
+                      {h.swarmSentiment === null ? '—' : h.swarmSentiment.toFixed(2)}
                     </span>
                     <span>BULLISH</span>
                   </div>
