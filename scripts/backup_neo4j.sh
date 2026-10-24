@@ -38,7 +38,9 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 EX_TEMPFAIL=75
 
 # --- Refuse while a simulation runs ----------------------------------------
+HEALTH_ANSWERED=0
 if health="$(curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null)"; then
+  HEALTH_ANSWERED=1
   if grep -Eq '"is_simulation_running"[[:space:]]*:[[:space:]]*true' <<<"$health"; then
     echo "error: a simulation is running ($HEALTH_URL reports is_simulation_running)." >&2
     echo "       Stopping Neo4j now would fail its writes; run the backup after it finishes." >&2
@@ -75,7 +77,15 @@ PY
 
 HOLDER="$(lock_holder)"
 case "$HOLDER" in
-  "" | web) ;;  # nothing running, or the web server (its health check above decides)
+  "") ;;  # nothing holds the lock
+  web)
+    # The web server holds the lock, so only its health check can say it is idle;
+    # a server too busy to answer may be mid-run, so no answer means refuse.
+    if [[ "$HEALTH_ANSWERED" != 1 ]]; then
+      echo "error: \`alphaswarm web\` holds $LOCK_FILE but $HEALTH_URL did not answer," >&2
+      echo "       so a running simulation cannot be ruled out; retry when the server responds." >&2
+      exit "$EX_TEMPFAIL"
+    fi ;;
   *)
     echo "error: \`alphaswarm $HOLDER\` is running (it holds $LOCK_FILE)." >&2
     echo "       Stopping Neo4j now would fail its writes; run the backup after it finishes." >&2

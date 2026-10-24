@@ -171,6 +171,18 @@ def test_an_idle_web_server_does_not_block_the_backup(harness: Harness) -> None:
     assert not (harness.backups / "neo4j.dump").exists()
 
 
+@needs_python
+def test_a_web_server_that_holds_the_lock_but_does_not_answer_blocks_the_backup(harness: Harness) -> None:
+    holder = acquire("web", detail="http://127.0.0.1:8000", path=harness.lock)
+    try:
+        result = harness.run()
+    finally:
+        holder.release()
+    assert result.returncode == 75
+    assert "did not answer" in result.stderr
+    assert not [c for c in harness.docker_calls() if c.startswith(("stop", "run"))]
+
+
 def test_no_answer_from_the_server_is_not_a_reason_to_refuse(harness: Harness) -> None:
     result = harness.run()
     assert result.returncode == 0, result.stderr
