@@ -21,6 +21,7 @@ from alphaswarm.graph import GraphStateManager
 from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.types import AgentPersona, SeedEvent
 from tests.support.golden import assert_golden
+from tests.support.manifests import make_manifest
 
 SRC = Path(__file__).resolve().parents[1] / "src" / "alphaswarm"
 CYCLE_ID = "00000000-0000-4000-8000-000000000015"
@@ -134,6 +135,7 @@ OUTAGE_CALLS: dict[str, Call] = {
     "set_cycle_status": lambda gm: gm.set_cycle_status(CYCLE_ID, "failed", error_code="internal_error"),
     "verify_connectivity": lambda gm: gm.verify_connectivity(),
     "write_cycle_metrics": lambda gm: gm.write_cycle_metrics(CYCLE_ID, {"num_rounds": 3}),
+    "write_run_manifest": lambda gm: gm.write_run_manifest(CYCLE_ID, make_manifest()),
     "write_decision_narrative": lambda gm: gm.write_decision_narrative(
         CYCLE_ID, "quants_01", "Fictional arc for a fictional cycle."
     ),
@@ -232,6 +234,7 @@ DELEGATES: dict[str, str] = {
     "seed_agents": "schema_writes",
     "set_cycle_status": "schema_writes",
     "write_cycle_metrics": "schema_writes",
+    "write_run_manifest": "schema_writes",
     "write_decision_narrative": "schema_writes",
     "write_shock_event": "schema_writes",
 }

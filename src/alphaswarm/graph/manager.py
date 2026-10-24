@@ -48,6 +48,7 @@ if TYPE_CHECKING:
         ShockImpactRow,
         SignalFlipRow,
     )
+    from alphaswarm.manifest import RunManifest
     from alphaswarm.state import AgentState
     from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SeedEvent
 
@@ -191,6 +192,9 @@ class GraphStateManager:
 
     async def write_cycle_metrics(self, cycle_id: str, metrics: dict[str, float | int | str | bool]) -> None:
         await schema_writes.write_cycle_metrics(self._write, cycle_id, metrics)
+
+    async def write_run_manifest(self, cycle_id: str, manifest: RunManifest) -> None:
+        await schema_writes.write_run_manifest(self._write, cycle_id, manifest)
 
     async def persist_round(
         self,

@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from alphaswarm.episodes import EntityMatch, EpisodeRecord
     from alphaswarm.errors import RunErrorCode
     from alphaswarm.graph.rows import CycleStatus
+    from alphaswarm.manifest import RunManifest
     from alphaswarm.types import AgentDecision, AgentPersona, BracketType, SeedEvent
 
 log = structlog.get_logger(component="graph")
@@ -50,6 +51,9 @@ SCHEMA_STATEMENTS: list[str] = [
     "CREATE INDEX influenced_by_cycle_round IF NOT EXISTS FOR ()-[r:INFLUENCED_BY]-() ON (r.cycle_id, r.round)",
     "CREATE INDEX cycle_created IF NOT EXISTS FOR (c:Cycle) ON (c.created_at)",
     "CREATE INDEX cycle_status IF NOT EXISTS FOR (c:Cycle) ON (c.status)",
+    # Backs the experiment-tag lookups of the cycle-comparison scripts
+    # (docs/DECISIONS.md#adr-run-manifest).
+    "CREATE INDEX cycle_experiment_tag IF NOT EXISTS FOR (c:Cycle) ON (c.experiment_tag)",
 ]
 
 # A uniqueness constraint cannot be created over existing duplicates, and no
@@ -882,3 +886,51 @@ async def _write_decision_narrative_tx(
     )
     record = await result.single()
     return int(record["updated"]) if record is not None else 0
+
+
+async def write_run_manifest(write: TxRunner, cycle_id: str, manifest: RunManifest) -> None:
+    """Stamp the run manifest, run seed and experiment tag on the Cycle
+    (docs/DECISIONS.md#adr-run-manifest). Fails loud when the Cycle is missing."""
+    payload = manifest.model_dump_json(by_alias=True)
+    matched = await write(
+        _write_run_manifest_tx,
+        cycle_id,
+        payload,
+        manifest.sim_seed,
+        manifest.experiment_tag,
+        op="write_run_manifest",
+    )
+    if not matched:
+        raise Neo4jWriteError(f"write_run_manifest matched no Cycle {cycle_id}", op="write_run_manifest")
+    log.info(
+        "run_manifest_written",
+        cycle_id=cycle_id,
+        sim_seed=manifest.sim_seed,
+        experiment_tag=manifest.experiment_tag or "",
+        manifest_bytes=len(payload),
+    )
+
+
+async def _write_run_manifest_tx(
+    tx: AsyncManagedTransaction,
+    cycle_id: str,
+    payload: str,
+    sim_seed: int,
+    experiment_tag: str | None,
+) -> int:
+    """SET the three Cycle properties; a null tag removes the property."""
+    result = await tx.run(
+        """
+        MATCH (c:Cycle {cycle_id: $cycle_id})
+        SET c.run_manifest_json = $payload,
+            c.sim_seed = $sim_seed,
+            c.experiment_tag = $experiment_tag
+        RETURN count(c) AS matched
+        """,
+        cycle_id=cycle_id,
+        payload=payload,
+        sim_seed=sim_seed,
+        experiment_tag=experiment_tag,
+    )
+    record = await result.single()
+    return int(record["matched"]) if record else 0
