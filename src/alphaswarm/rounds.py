@@ -21,7 +21,12 @@ from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities
 from alphaswarm.errors import RoundAlignmentError, RoundFailedError
 from alphaswarm.manifest import derive_call_seed
 from alphaswarm.metrics import filter_round_citations, round_experiment_metrics
-from alphaswarm.peers import RoundPromptContext, build_round_context, compute_exposure_metrics
+from alphaswarm.peers import (
+    RoundPromptContext,
+    build_round_context,
+    compute_exposure_metrics,
+    select_shock_treated_ids,
+)
 from alphaswarm.personas import persona_to_worker_config
 from alphaswarm.state import BracketSummary
 from alphaswarm.telemetry import RoundTelemetry
@@ -332,6 +337,8 @@ class RoundInputs:
     user_message: str
     market_context: str | None
     call_seeds: tuple[int, ...] | None
+    user_messages: tuple[str, ...] | None = None  # per agent, only for a shock split round
+    shock_treated_ids: frozenset[str] | None = None
 
 
 def worker_configs_for(personas: Sequence[AgentPersona], sim: SimulationSettings) -> list[WorkerPersonaConfig]:
@@ -361,12 +368,24 @@ def prepare_round_inputs(
         if ctx.sim_seed is not None
         else None
     )
+    user_message = _with_shocks(ctx.rumor, shocks)
+    user_messages: tuple[str, ...] | None = None
+    shock_treated: frozenset[str] | None = None
+    if sim.shock_treatment_split and shocks:
+        # Half of each bracket sees every active shock; the rest see the plain
+        # rumor, so the shock's effect is treated minus untreated pivots
+        # (docs/DECISIONS.md#adr-run-manifest).
+        shock_treated = select_shock_treated_ids(ctx.personas, run_seed=ctx.run_seed)
+        plain = _with_shocks(ctx.rumor, ())
+        user_messages = tuple(user_message if p.id in shock_treated else plain for p in ctx.personas)
     return RoundInputs(
         prompt=prompt,
         worker_configs=tuple(worker_configs_for(ctx.personas, sim)),
-        user_message=_with_shocks(ctx.rumor, shocks),
+        user_message=user_message,
         market_context=ctx.market_context if round_num <= sim.market_context_rounds else None,
         call_seeds=seeds,
+        user_messages=user_messages,
+        shock_treated_ids=shock_treated,
     )
 
 
@@ -463,6 +482,7 @@ async def run_round(
         telemetry=telemetry,
         own_priors=list(inputs.prompt.own_prior_lines),
         call_seeds=list(inputs.call_seeds) if inputs.call_seeds is not None else None,
+        user_messages=list(inputs.user_messages) if inputs.user_messages is not None else None,
     )
     if len(raw) != len(worker_configs):
         raise RoundAlignmentError(round_num, expected=len(worker_configs), actual=len(raw))
@@ -492,6 +512,7 @@ async def run_round(
         exposures=exposure_by_agent,
         control_ids=control_ids,
         citations_invalid=citations_invalid,
+        shock_treated_ids=inputs.shock_treated_ids,
     )
 
     weights: dict[str, float] = {}
@@ -559,6 +580,7 @@ async def run_round(
         control_ids=control_ids,
         citations_invalid=citations_invalid,
         personas=ctx.personas,
+        shock_treated_ids=inputs.shock_treated_ids,
     )
     return RoundOutcome(
         round_num=round_num,
