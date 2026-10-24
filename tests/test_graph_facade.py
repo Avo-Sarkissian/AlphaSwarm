@@ -126,6 +126,7 @@ OUTAGE_CALLS: dict[str, Call] = {
     "read_influence_leaders": lambda gm: gm.read_influence_leaders(CYCLE_ID),
     "read_key_dissenters": lambda gm: gm.read_key_dissenters(CYCLE_ID),
     "read_latest_cycle_id": lambda gm: gm.read_latest_cycle_id(),
+    "read_persona_trait_seed": lambda gm: gm.read_persona_trait_seed(CYCLE_ID),
     "read_rationale_entries_for_round": lambda gm: gm.read_rationale_entries_for_round(CYCLE_ID, 1),
     "read_round_timeline": lambda gm: gm.read_round_timeline(CYCLE_ID),
     "read_shock_event": lambda gm: gm.read_shock_event(CYCLE_ID),
@@ -227,6 +228,7 @@ DELEGATES: dict[str, str] = {
     "read_decision_narrative": "replay_interview",
     "read_full_cycle_signals": "replay_interview",
     "read_latest_cycle_id": "replay_interview",
+    "read_persona_trait_seed": "replay_interview",
     "read_rationale_entries_for_round": "replay_interview",
     # graph/schema_writes.py
     "compute_influence_edges": "schema_writes",

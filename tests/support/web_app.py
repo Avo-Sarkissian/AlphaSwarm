@@ -116,6 +116,9 @@ class FakeCycleGraph:
             raise AgentNotFoundError(agent_id, cycle_id)
         return rows
 
+    async def read_persona_trait_seed(self, cycle_id: str) -> int | None:
+        return None  # legacy cycle: no traits
+
     async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[dict[str, object]]:
         self.decision_calls.append((cycle_id, agent_id))
         return list(self.decisions.get((cycle_id, agent_id), []))
