@@ -11,7 +11,7 @@ import pytest
 
 from alphaswarm.errors import RoundAlignmentError
 from alphaswarm.rounds import RoundCompleteEvent, RoundContext, SimulationDeps, run_round
-from alphaswarm.settings import AppSettings
+from alphaswarm.settings import AppSettings, SimulationSettings
 from alphaswarm.state import AppliedShock
 from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, SignalType
 from alphaswarm.worker import UNTRUSTED_DATA_OPEN
@@ -109,7 +109,10 @@ async def test_round_2_reads_peers_from_the_previous_outcome_and_drops_the_marke
     round_worker: ScriptedProvider,
     clock: RoundClock,
     fake_graph: MagicMock,
+    scenario_settings: AppSettings,
 ) -> None:
+    # Pins the Round 1-only market block and peers for every reader.
+    scenario_settings.simulation = SimulationSettings(market_context_rounds=1, control_fraction=0.0)
     ctx = make_ctx()
     first = await run_round(ctx, 1, None, ())
     clock.round = 2

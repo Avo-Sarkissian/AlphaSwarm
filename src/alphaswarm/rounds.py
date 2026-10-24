@@ -19,18 +19,13 @@ import structlog
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
 from alphaswarm.errors import RoundAlignmentError, RoundFailedError
+from alphaswarm.manifest import derive_call_seed
 from alphaswarm.metrics import split_flips
-from alphaswarm.peers import (
-    PeerContextsResult,
-    apply_holdout_and_priors,
-    build_peer_contexts,
-    compute_exposure_metrics,
-    select_control_ids,
-)
+from alphaswarm.peers import RoundPromptContext, build_round_context, compute_exposure_metrics
 from alphaswarm.personas import persona_to_worker_config
 from alphaswarm.state import BracketSummary
 from alphaswarm.telemetry import RoundTelemetry
-from alphaswarm.types import SignalType
+from alphaswarm.types import SignalType, WorkerPersonaConfig
 
 if TYPE_CHECKING:
     from alphaswarm.episodes import EntityRef
@@ -39,7 +34,7 @@ if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.ingestion.types import ContextPacket
-    from alphaswarm.settings import AppSettings
+    from alphaswarm.settings import AppSettings, SimulationSettings
     from alphaswarm.state import StateSink
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig
 
@@ -317,6 +312,54 @@ class RoundContext:
     entities: tuple[EntityRef, ...]
     run_seed: str
     on_round_complete: OnRoundComplete = None
+    sim_seed: int | None = None  # effective run seed; None sends no per-call seeds
+
+
+@dataclasses.dataclass(frozen=True)
+class RoundInputs:
+    """Everything one round sends to ``dispatch_wave`` (docs/DECISIONS.md#adr-run-manifest)."""
+
+    prompt: RoundPromptContext
+    worker_configs: tuple[WorkerPersonaConfig, ...]
+    user_message: str
+    market_context: str | None
+    call_seeds: tuple[int, ...] | None
+
+
+def worker_configs_for(personas: Sequence[AgentPersona], sim: SimulationSettings) -> list[WorkerPersonaConfig]:
+    """Worker configs in persona order; ``uniform_temperature`` overrides the brackets'."""
+    configs = [persona_to_worker_config(p) for p in personas]
+    if sim.uniform_temperature is not None:
+        for config in configs:
+            config["temperature"] = sim.uniform_temperature
+    return configs
+
+
+def prepare_round_inputs(
+    ctx: RoundContext, round_num: int, prev: RoundOutcome | None, shocks: Sequence[str]
+) -> RoundInputs:
+    """Prompt context, worker configs, message, market block and call seeds for one round."""
+    sim = ctx.deps.settings.simulation
+    prompt = build_round_context(
+        ctx.personas,
+        prev.decisions if prev is not None else (),
+        round_num,
+        sim=sim,
+        run_seed=ctx.run_seed,
+        global_citation_weights=prev.influence_weights if prev is not None else None,
+    )
+    seeds = (
+        tuple(derive_call_seed(ctx.sim_seed, p.id, round_num) for p in ctx.personas)
+        if ctx.sim_seed is not None
+        else None
+    )
+    return RoundInputs(
+        prompt=prompt,
+        worker_configs=tuple(worker_configs_for(ctx.personas, sim)),
+        user_message=_with_shocks(ctx.rumor, shocks),
+        market_context=ctx.market_context if round_num <= sim.market_context_rounds else None,
+        call_seeds=seeds,
+    )
 
 
 def _round_metrics(
@@ -378,44 +421,22 @@ async def run_round(
             deps.state.record_applied_shock(text, round_num)
         logger.info("shock_injected", cycle_id=ctx.cycle_id, round_num=round_num, shock_length=len(text))
 
-    peers: PeerContextsResult | None = None
-    control_ids: frozenset[str] | None = None
-    own_priors: list[str | None] | None = None
+    inputs = prepare_round_inputs(ctx, round_num, prev, shocks)
+    control_ids = inputs.prompt.control_ids
     metrics: dict[str, float | int | str | bool] = {}
     if prev is not None:
-        peers = build_peer_contexts(
-            personas,
-            prev.decisions,
-            round_num - 1,
-            sim=deps.settings.simulation,
-            run_seed=ctx.run_seed,
-            global_citation_weights=prev.influence_weights,
-        )
-        # Seeded no-peer holdout and own priors, before the exposure counts
-        # (docs/DECISIONS.md#adr-diverse-peer-context).
-        control_ids = select_control_ids(
-            personas, fraction=deps.settings.simulation.control_fraction, run_seed=ctx.run_seed
-        )
-        contexts, exposures, own_priors = apply_holdout_and_priors(
-            personas,
-            list(peers.contexts),
-            list(peers.exposures),
-            prev.decisions,
-            round_num - 1,
-            sim=deps.settings.simulation,
-            control_ids=control_ids,
-        )
-        peers = PeerContextsResult(contexts=tuple(contexts), exposures=tuple(exposures))
-        metrics.update(compute_exposure_metrics(peers.exposures, personas, round_num=round_num))
+        # Exposure counts use what readers were actually shown: control readers
+        # count as seeing nobody (docs/DECISIONS.md#adr-diverse-peer-context).
+        metrics.update(compute_exposure_metrics(inputs.prompt.exposures, personas, round_num=round_num))
     logger.info(
         "round_dispatch_start",
         cycle_id=ctx.cycle_id,
         round_num=round_num,
         agent_count=len(personas),
-        peers_found=sum(1 for c in peers.contexts if c) if peers is not None else 0,
+        peers_found=sum(1 for block in inputs.prompt.peer_blocks if block),
     )
 
-    worker_configs = [persona_to_worker_config(p) for p in personas]
+    worker_configs = list(inputs.worker_configs)
     # One telemetry aggregate per round (docs/DECISIONS.md#adr-inference-telemetry);
     # a cloud worker has no local context window to warn about.
     telemetry = RoundTelemetry(
@@ -425,14 +446,15 @@ async def run_round(
         personas=worker_configs,
         governor=deps.controller,
         provider=deps.worker,
-        user_message=_with_shocks(ctx.rumor, shocks),
+        user_message=inputs.user_message,
         settings=deps.settings.governor,
-        peer_contexts=list(peers.contexts) if peers is not None else None,
-        market_context=ctx.market_context if round_num == 1 else None,
+        peer_contexts=list(inputs.prompt.peer_blocks),
+        market_context=inputs.market_context,
         state_store=deps.state,
         round_num=round_num,
-        own_priors=own_priors,
         telemetry=telemetry,
+        own_priors=list(inputs.prompt.own_prior_lines),
+        call_seeds=list(inputs.call_seeds) if inputs.call_seeds is not None else None,
     )
     if len(raw) != len(worker_configs):
         raise RoundAlignmentError(round_num, expected=len(worker_configs), actual=len(raw))
@@ -444,10 +466,10 @@ async def run_round(
         round_num,
         decisions,
         personas=personas,
-        peer_contexts=peers.contexts if peers is not None else None,
+        peer_contexts=inputs.prompt.peer_blocks,
         prev_decisions=prev.decisions if prev is not None else None,
         entities=ctx.entities,
-        control_ids=control_ids or (),
+        control_ids=control_ids if prev is not None else (),
     )
 
     weights: dict[str, float] = {}
@@ -467,7 +489,7 @@ async def run_round(
     if deps.state is not None:
         await deps.state.set_bracket_summaries(summaries)
     shift = compute_shifts(prev.decisions, decisions, personas) if prev is not None else None
-    if prev is not None and control_ids is not None:
+    if prev is not None:
         flips_control, flips_treated = split_flips(prev.decisions, decisions, control_ids)
         metrics.update(
             {
@@ -520,7 +542,7 @@ async def run_round(
         round_num=round_num,
         decisions=decisions,
         decision_ids=tuple(persisted.decision_ids),
-        exposures=peers.exposures if peers is not None else tuple(() for _ in personas),
+        exposures=inputs.prompt.exposures,
         shift=shift,
         bracket_summaries=summaries,
         influence_weights=weights,
