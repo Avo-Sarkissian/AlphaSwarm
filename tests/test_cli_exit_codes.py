@@ -252,3 +252,120 @@ def test_provider_config_error_exits_2(monkeypatch: pytest.MonkeyPatch, capsys: 
     code = cli.run_cli(["inject", "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics."])
     assert code == cli.EXIT_USAGE
     assert "Configuration error" in capsys.readouterr().err
+
+
+# ---------------------------------------------------------------------------
+# Single instance (docs/DECISIONS.md#adr-instance-lock)
+# ---------------------------------------------------------------------------
+
+_RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics."
+
+
+def test_report_exits_75_naming_the_web_server(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A CLI report while the web server runs is refused."""
+    from alphaswarm import instance_lock
+
+    def _must_not_run(*args: object) -> None:
+        raise AssertionError("the report handler ran while another process held the lock")
+
+    monkeypatch.setattr(cli, "_handle_report", _must_not_run)
+    holder = instance_lock.acquire("web", detail="http://127.0.0.1:8000")
+    try:
+        code = cli.run_cli(["report"])
+    finally:
+        holder.release()
+    err = capsys.readouterr().err
+    assert code == cli.EXIT_LOCKED == 75
+    assert "`alphaswarm web`" in err and "http://127.0.0.1:8000" in err
+
+
+@pytest.mark.parametrize("command", ["run", "inject"])
+def test_run_and_inject_are_refused_while_locked(monkeypatch: pytest.MonkeyPatch, command: str) -> None:
+    from alphaswarm import instance_lock
+
+    monkeypatch.setattr(cli, "_handle_run", lambda rumor: None)
+    monkeypatch.setattr(cli, "_handle_inject", lambda rumor: None)
+    holder = instance_lock.acquire("report")
+    try:
+        assert cli.run_cli([command, _RUMOR]) == cli.EXIT_LOCKED
+    finally:
+        holder.release()
+
+
+def test_web_holds_the_lock_while_serving(monkeypatch: pytest.MonkeyPatch) -> None:
+    from alphaswarm import instance_lock
+
+    seen: list[str] = []
+
+    def _serve(host: str, port: int) -> None:
+        try:
+            instance_lock.acquire("report").release()
+        except instance_lock.InstanceLockHeldError as exc:
+            seen.append(str(exc))
+
+    monkeypatch.setattr(cli, "_handle_web", _serve)
+    assert cli.run_cli(["web", "--port", "8123"]) == cli.EXIT_OK
+    assert seen and "http://127.0.0.1:8123" in seen[0]
+    instance_lock.acquire("report").release()  # released once the server returned
+
+
+def test_start_entry_point_holds_the_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from alphaswarm import instance_lock
+
+    held: list[bool] = []
+
+    def _serve(host: str, port: int) -> None:
+        try:
+            instance_lock.acquire("run").release()
+            held.append(False)
+        except instance_lock.InstanceLockHeldError:
+            held.append(True)
+
+    monkeypatch.setattr(cli, "_handle_web", _serve)
+    cli.main_web()
+    assert held == [True]
+
+
+def test_doctor_runs_while_the_lock_is_held(monkeypatch: pytest.MonkeyPatch) -> None:
+    from alphaswarm import instance_lock
+    from alphaswarm.doctor import DoctorReport
+    from alphaswarm.readiness import ComponentStatus
+
+    async def _collect(settings: object, **_: object) -> DoctorReport:
+        return DoctorReport(components=(ComponentStatus("neo4j", ok=True, required=True),), inference_mode="local")
+
+    monkeypatch.setattr("alphaswarm.doctor.collect_report", _collect)
+    holder = instance_lock.acquire("web")
+    try:
+        with pytest.raises(SystemExit) as exc_info:
+            cli.run_cli(["doctor", "--json"])
+    finally:
+        holder.release()
+    assert exc_info.value.code == 0
+
+
+def test_a_failing_command_still_releases_the_lock(monkeypatch: pytest.MonkeyPatch) -> None:
+    from alphaswarm import instance_lock
+
+    def _boom(rumor: str) -> None:
+        raise RuntimeError("seed parse exploded")
+
+    monkeypatch.setattr(cli, "_handle_inject", _boom)
+    assert cli.run_cli(["inject", _RUMOR]) == cli.EXIT_FAILURE
+    instance_lock.acquire("run").release()
+
+
+def test_an_unopenable_lock_is_a_runtime_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from alphaswarm import instance_lock
+
+    def _refuse(*args: object, **kwargs: object) -> None:
+        raise PermissionError("permission denied")
+
+    monkeypatch.setattr(cli, "_handle_inject", lambda rumor: None)
+    monkeypatch.setattr(instance_lock, "acquire", _refuse)
+    assert cli.run_cli(["inject", _RUMOR]) == cli.EXIT_FAILURE
+    assert "cannot open the AlphaSwarm instance lock" in capsys.readouterr().err

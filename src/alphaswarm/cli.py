@@ -2,7 +2,8 @@
 
 stdout carries only command output (tables, paths, help); logs go to stderr.
 Exit codes: 0 success, 1 runtime failure, 2 usage or configuration error,
-130 interrupted. ``-v`` prints tracebacks (docs/DECISIONS.md#adr-cli-ux).
+75 another AlphaSwarm process is running, 130 interrupted. ``-v`` prints
+tracebacks (docs/DECISIONS.md#adr-cli-ux, #adr-instance-lock).
 """
 
 from __future__ import annotations
@@ -19,6 +20,7 @@ from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import ValidationError
 
+from alphaswarm import instance_lock
 from alphaswarm.errors import InferenceConfigError, ProviderConfigError
 from alphaswarm.fsutil import atomic_write_text
 from alphaswarm.ingestion.fixture import load_context_fixture
@@ -473,10 +475,6 @@ async def _handle_report(cycle_id: str | None, output: str | None) -> None:
             if cycle_id is None:
                 print("Error: No complete simulation cycles found in the database.", file=sys.stderr)
                 raise SystemExit(1)
-        print(
-            "WARNING: Report generation uses the orchestrator model. "
-            "Do not run concurrently with simulations or interviews."
-        )
         service = ReportService(
             graph=graph,
             inference=runtime.inference,
@@ -561,6 +559,19 @@ EXIT_OK: Final = 0
 EXIT_FAILURE: Final = 1
 EXIT_USAGE: Final = 2
 EXIT_INTERRUPTED: Final = 130
+EXIT_LOCKED: Final = 75  # EX_TEMPFAIL: another AlphaSwarm process holds the instance lock
+
+#: Commands that load or unload the shared Ollama aliases hold the per-user
+#: instance lock for their whole run (docs/DECISIONS.md#adr-instance-lock).
+LOCKED_COMMANDS: Final = frozenset({"inject", "run", "report", "web"})
+
+
+def _lock_detail(args: argparse.Namespace) -> str | None:
+    """What the lock file records about this process beyond pid and command."""
+    if args.command == "web":
+        return f"http://{args.host}:{args.port}"
+    return None
+
 
 #: Exceptions that mean "fix the configuration"; they exit with EXIT_USAGE.
 CONFIG_ERRORS: Final[tuple[type[BaseException], ...]] = (
@@ -720,7 +731,22 @@ def run_cli(argv: Sequence[str] | None = None) -> int:
         "web": lambda: _invoke(_handle_web, args.host, args.port),
         "doctor": lambda: _invoke(_handle_doctor, args.json),
     }
-    return _run_command(args.command, commands[args.command], verbose=getattr(args, "verbose", False))
+    command = commands[args.command]
+    verbose = getattr(args, "verbose", False)
+    if args.command not in LOCKED_COMMANDS:
+        return _run_command(args.command, command, verbose=verbose)
+    try:
+        lock = instance_lock.acquire(args.command, detail=_lock_detail(args))
+    except instance_lock.InstanceLockHeldError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return EXIT_LOCKED
+    except OSError as exc:
+        print(f"Error: cannot open the AlphaSwarm instance lock: {exc}", file=sys.stderr)
+        return EXIT_FAILURE
+    try:
+        return _run_command(args.command, command, verbose=verbose)
+    finally:
+        lock.release()
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -731,7 +757,7 @@ def main(argv: Sequence[str] | None = None) -> None:
 
 
 def main_web() -> None:
-    """Console-script entry point for ``start``: the web UI on 127.0.0.1:8000."""
-    code = _run_command("web", lambda: _invoke(_handle_web, "127.0.0.1", 8000), verbose=False)
+    """Console-script entry point for ``start``: the web UI on 127.0.0.1:8000 (holds the lock)."""
+    code = run_cli(["web"])
     if code != EXIT_OK:
         sys.exit(code)

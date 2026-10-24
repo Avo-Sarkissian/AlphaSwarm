@@ -155,6 +155,8 @@ grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -3
 
 ## 4. Running the stack for development
 
+- **One AlphaSwarm process at a time.** `alphaswarm web` (or `./start`) holds `~/.alphaswarm/instance.lock`; `alphaswarm run`, `inject` or `report` started meanwhile exit with code 75 and name the holder. Run jobs from the web UI while the server is up. `alphaswarm doctor` never takes the lock. A crashed process releases it automatically.
+
 ```bash
 # Terminal 1: backend. Runtime paths (.env, holdings CSV, .secrets/, advisory/, reports/) resolve against the repo root, so any working directory works.
 uv run alphaswarm web      # the single launcher (127.0.0.1:8000); ./start and uv run start call it
