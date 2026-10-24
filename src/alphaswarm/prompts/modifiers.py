@@ -31,18 +31,18 @@ def truncate_modifier(modifier: str) -> str:
 
 
 def build_modifier_user_message(seed_event: SeedEvent) -> str:
-    """Build the user message for modifier generation from SeedEvent (D-04).
+    """Build the user message for modifier generation from SeedEvent (docs/DECISIONS.md#p13-d-04).
 
-    Includes both raw_rumor text and all extracted entities with their
-    type, relevance, and sentiment metadata. Entity names are sanitized
-    before interpolation (D-10, D-12).
+    Includes the raw rumor and each extracted entity's name and type (no relevance
+    or sentiment). Entity names are sanitized before interpolation
+    (docs/DECISIONS.md#p13-d-10, docs/DECISIONS.md#p13-d-12).
     """
     entity_lines = []
     for e in seed_event.entities:
         safe_name = sanitize_entity_name(e.name)
-        entity_lines.append(
-            f"- {safe_name} (type: {e.type.value}, relevance: {e.relevance:.2f}, sentiment: {e.sentiment:+.2f})"
-        )
+        # Names and types only: the orchestrator's per-entity sentiment must not
+        # reach the modifiers (docs/DECISIONS.md#p13-d-04).
+        entity_lines.append(f"- {safe_name} (type: {e.type.value})")
     entities_block = "\n".join(entity_lines) if entity_lines else "(no entities extracted)"
 
     return f"SEED RUMOR:\n{seed_event.raw_rumor}\n\nEXTRACTED ENTITIES:\n{entities_block}"
@@ -68,6 +68,8 @@ the order to DEFAULT_BRACKETS (docs/DECISIONS.md#adr-swarm-composition-v2).
 """
 
 
+# Role and expertise only: a directional modifier would prime a whole bracket before
+# Round 1 (docs/DECISIONS.md#p13-d-04).
 def render_modifier_generation_prompt(hints: Mapping[BracketType, str]) -> str:
     """The orchestrator system prompt asking for one modifier per bracket in ``hints``."""
     count = len(hints)
@@ -80,6 +82,9 @@ def render_modifier_generation_prompt(hints: Mapping[BracketType, str]) -> str:
         "Each modifier should be 8-20 words describing a specialist persona tailored"
         " to the specific entities and themes in this rumor. The modifier completes"
         ' the sentence "You are a ..." so it should read naturally after that prefix.\n\n'
+        "Describe role and expertise only; no directional view. Never say whether the"
+        " rumor is good or bad news, bullish or bearish, or which way anyone should"
+        " trade: every agent forms its own view later.\n\n"
         f"The {count} brackets (use these exact keys):\n"
         f"{bracket_lines}\n"
         "Examples of good modifiers:\n"

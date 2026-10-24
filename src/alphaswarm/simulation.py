@@ -315,6 +315,7 @@ async def _record_cycle_metrics(
     total_seconds: float,
     git_sha: str | None,
     git_dirty: bool | None,
+    modifier_parse_tier: int | None = None,
     extra: Mapping[str, float] | None = None,
 ) -> None:
     """Write the cycle metrics; a failed write is logged and never fails the run."""
@@ -324,7 +325,11 @@ async def _record_cycle_metrics(
         agent_count=len(roster),
         total_seconds=total_seconds,
     )
-    metrics.update(_derived_cycle_metrics(outcomes, roster, run_seed=run_seed, cycle_id=cycle_id))
+    metrics.update(
+        _derived_cycle_metrics(
+            outcomes, roster, run_seed=run_seed, cycle_id=cycle_id, modifier_parse_tier=modifier_parse_tier
+        )
+    )
     metrics.update(
         _peer_and_provenance_metrics(
             deps.settings.simulation,
@@ -348,9 +353,11 @@ def _derived_cycle_metrics(
     *,
     run_seed: str,
     cycle_id: str,
+    modifier_parse_tier: int | None = None,
 ) -> dict[str, float | int | str | bool]:
     """Consensus, dispersion and cross-round estimators for the cycle metrics
-    (metrics_version 3, docs/DECISIONS.md#adr-consensus-estimators).
+    (metrics_version 3, docs/DECISIONS.md#adr-consensus-estimators), plus the
+    modifier parse tier when modifiers were generated (docs/DECISIONS.md#p13-d-09).
 
     Derived numbers only: a bug here is logged with its traceback and the run
     still completes with its other metrics (docs/DECISIONS.md#adr-cycle-metrics).
@@ -366,6 +373,8 @@ def _derived_cycle_metrics(
         )
     except Exception:
         logger.warning("methodology_metrics_failed", cycle_id=cycle_id, exc_info=True)
+    if modifier_parse_tier is not None:
+        metrics["modifier_parse_tier"] = modifier_parse_tier
     return metrics
 
 
@@ -378,11 +387,14 @@ def _run_roster(
 ) -> list[AgentPersona]:
     """The personas this run's rounds use: the cycle's generated modifiers and, when
     persona traits are on, seeded per-agent traits (docs/DECISIONS.md#adr-persona-traits)."""
-    if modifier_result is None and trait_seed is None:
+    # A tier-3 result carries no modifiers: treated like no modifier generation
+    # (docs/DECISIONS.md#p13-d-07).
+    usable = modifier_result if modifier_result is not None and modifier_result.parse_tier != 3 else None
+    if usable is None and trait_seed is None:
         return list(personas)
     roster = generate_personas(
         list(brackets),
-        modifiers=modifier_result.modifiers if modifier_result is not None else None,
+        modifiers=usable.modifiers if usable is not None else None,
         seed=trait_seed,
     )
     logger.info(
@@ -536,6 +548,7 @@ async def _run_simulation(
         total_seconds=time.monotonic() - sim_start,
         git_sha=git_sha,
         git_dirty=git_dirty,
+        modifier_parse_tier=modifier_result.parse_tier if modifier_result is not None else None,
         extra={"seed_seconds": round(seed_seconds, 1), **governor_metrics(deps.controller)},
     )
     # Every round is persisted and metrics were attempted (docs/DECISIONS.md#adr-cycle-metrics).

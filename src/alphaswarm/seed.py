@@ -18,7 +18,7 @@ from alphaswarm.errors import StructuredOutputError
 from alphaswarm.inference.caps import MODIFIERS_MAX_TOKENS, SEED_MAX_TOKENS
 from alphaswarm.inference.structured import chat_structured
 from alphaswarm.ingestion.tickers import TickerResolver
-from alphaswarm.personas import BRACKET_MODIFIERS, compute_prompt_template_hash, load_bracket_configs
+from alphaswarm.personas import compute_prompt_template_hash, load_bracket_configs
 from alphaswarm.prompts.modifiers import (
     MODIFIER_GENERATION_PROMPT,
     build_modifier_user_message,
@@ -108,17 +108,12 @@ class SeedLLMOutput(BaseModel):
         )
 
 
-def static_modifiers() -> dict[BracketType, str]:
-    """Each bracket's first static modifier: the tier-3 fallback (docs/DECISIONS.md#p13-d-07)."""
-    return {bracket: (BRACKET_MODIFIERS.get(bracket) or [""])[0] for bracket in BracketType}
-
-
 class ModifiersLLMOutput(BaseModel):
     """The orchestrator's modifier reply: one short persona modifier per bracket.
 
     Keys are case-insensitive, extra keys are ignored and a missing or
-    non-string value becomes "" so that bracket falls back to its static
-    modifier (docs/DECISIONS.md#p13-d-08).
+    non-string value becomes "", so that bracket gets no focus line
+    (docs/DECISIONS.md#p13-d-08).
     """
 
     model_config = ConfigDict(frozen=True, extra="ignore")
@@ -147,18 +142,17 @@ class ModifiersLLMOutput(BaseModel):
         return value.strip() if isinstance(value, str) else ""
 
     def to_modifiers(self) -> tuple[dict[BracketType, str], list[str]]:
-        """Bracket -> truncated modifier, plus the bracket values that fell back."""
-        fallback = static_modifiers()
+        """Bracket -> truncated modifier for the brackets the model filled, plus the
+        bracket values it left empty; those get no focus line (docs/DECISIONS.md#p13-d-08)."""
         modifiers: dict[BracketType, str] = {}
-        fell_back: list[str] = []
+        missing: list[str] = []
         for bracket in BracketType:
             text = getattr(self, bracket.value)
             if text:
                 modifiers[bracket] = truncate_modifier(text)
             else:
-                modifiers[bracket] = fallback[bracket]
-                fell_back.append(bracket.value)
-        return modifiers, fell_back
+                missing.append(bracket.value)
+        return modifiers, missing
 
 
 async def inject_seed(
@@ -281,8 +275,8 @@ async def generate_modifiers(
     """Generate entity-aware bracket modifiers via the orchestrator (docs/DECISIONS.md#p13-d-04).
 
     One ``chat_structured`` call in the seed's orchestrator session
-    (docs/DECISIONS.md#p13-d-06); a reply that never validates falls back to
-    the static modifiers (tier 3, docs/DECISIONS.md#p13-d-07).
+    (docs/DECISIONS.md#p13-d-06); a reply that never validates applies no
+    modifiers at all (tier 3, docs/DECISIONS.md#p13-d-07).
     """
     logger.info("modifier_generation_start", entity_count=len(seed_event.entities))
     try:
@@ -297,13 +291,15 @@ async def generate_modifiers(
         )
     except StructuredOutputError:
         logger.warning("modifier_generation_fallback", parse_tier=3)
-        return ParsedModifiersResult(modifiers=static_modifiers(), parse_tier=3)
-    modifiers, fell_back = result.value.to_modifiers()
-    for bracket_value in fell_back:
-        logger.warning("modifier_bracket_fallback", bracket=bracket_value, reason="missing_or_invalid")
+        # No usable reply: no generated modifiers at all, rather than telling every
+        # agent it is the bracket's first static persona (docs/DECISIONS.md#p13-d-07).
+        return ParsedModifiersResult(modifiers={}, parse_tier=3)
+    modifiers, missing = result.value.to_modifiers()
+    for bracket_value in missing:
+        logger.warning("modifier_bracket_missing", bracket=bracket_value)
     logger.info(
         "modifier_generation_complete",
         parse_tier=result.parse_tier,
-        modifier_count=len(modifiers) - len(fell_back),
+        modifier_count=len(modifiers),
     )
     return ParsedModifiersResult(modifiers=modifiers, parse_tier=result.parse_tier)
