@@ -59,11 +59,12 @@ describe('InfluenceGraph layout', () => {
 
   it('draws one node per agent and ignores frame order', () => {
     const first = renderGraph();
-    const where = node(first.container, 'quants_01').getAttribute('transform');
+    const where = node(first.container, 'quants_01').style.transform;
+    expect(where).toMatch(/^translate\(/);
     expect(first.container.querySelectorAll('.ig-node')).toHaveLength(100);
     cleanup();
     const second = renderGraph({ agents: [...AGENTS].reverse() });
-    expect(node(second.container, 'quants_01').getAttribute('transform')).toBe(where);
+    expect(node(second.container, 'quants_01').style.transform).toBe(where);
   });
 
   it('labels every bracket', () => {

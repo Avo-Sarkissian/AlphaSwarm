@@ -40,9 +40,10 @@ describe('InfluenceGraph edge cases', () => {
     const resize = (width: number, height: number) =>
       act(() => callbacks.forEach((cb) => cb([{ contentRect: { width, height } } as ResizeObserverEntry], {} as ResizeObserver)));
     resize(1200, 800);
-    const before = node(container, 'quants_01').getAttribute('transform');
+    const before = node(container, 'quants_01').style.transform;
+    expect(before).toMatch(/^translate\(/);
     resize(0, 0);
-    expect(node(container, 'quants_01').getAttribute('transform')).toBe(before);
+    expect(node(container, 'quants_01').style.transform).toBe(before);
     expect(container.querySelector('svg')?.getAttribute('viewBox')).toBe('0 0 1200 800');
   });
 
