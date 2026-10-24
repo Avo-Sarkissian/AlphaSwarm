@@ -142,11 +142,6 @@ def test_model_attribute() -> None:
     assert p.model == "claude-opus-4-5"
 
 
-async def test_prepare_noop() -> None:
-    p, _ = _make_provider(_FakeResponse(content=[_FakeTextBlock(text="hi")]))
-    await p.prepare()  # must not raise
-
-
 async def test_teardown_noop() -> None:
     p, _ = _make_provider(_FakeResponse(content=[_FakeTextBlock(text="hi")]))
     await p.teardown()  # must not raise
@@ -598,3 +593,23 @@ async def test_missing_tool_use_block_keeps_the_billed_tokens() -> None:
     with pytest.raises(InferenceError) as exc_info:
         await provider.chat(_MSG, response_schema=_SCHEMA)
     assert (exc_info.value.input_tokens, exc_info.value.output_tokens) == (10, 5)
+
+
+async def test_prepare_preflights_once_with_one_token() -> None:
+    provider, messages = _scripted_provider([_OK])
+    await provider.prepare()
+    await provider.prepare()
+    assert len(messages.calls) == 1
+    assert messages.calls[0]["max_tokens"] == 1
+
+
+async def test_preflight_unknown_model_is_a_config_error() -> None:
+    provider, _ = _scripted_provider([_status_error(anthropic.NotFoundError, 404, "model: claude-typo")])
+    with pytest.raises(ProviderConfigError):
+        await provider.prepare()
+
+
+async def test_transient_preflight_failure_does_not_block() -> None:
+    provider, messages = _scripted_provider([_status_error(anthropic.OverloadedError, 529, "overloaded")])
+    await provider.prepare()
+    assert len(messages.calls) == 3  # one attempt plus two preflight retries

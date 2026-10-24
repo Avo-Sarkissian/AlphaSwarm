@@ -37,7 +37,7 @@ from alphaswarm.governor import ResourceGovernor
 # style tests reach the runtime too.
 from alphaswarm.inference import config as inference_config
 from alphaswarm.inference import factory
-from alphaswarm.inference.retry import RetryGate
+from alphaswarm.inference.rate_limit import RateLimitController
 from alphaswarm.ingestion import RSSNewsProvider, YFinanceMarketDataProvider
 from alphaswarm.logging import configure_logging
 from alphaswarm.personas import generate_personas, load_bracket_configs
@@ -332,6 +332,8 @@ async def open_simulation(
     """``SimulationDeps`` for one run; providers are closed (not torn down) afterwards.
 
     ``run_simulation`` owns prepare/teardown of both models (docs/DECISIONS.md#adr-round-runner).
+    Cloud roles are preflighted before anything is yielded, so a rejected model id
+    fails before seeding (docs/DECISIONS.md#adr-cloud-retry).
     Raises Neo4jUnavailableError when this process has no graph.
     """
     # Imported here so this module stays importable without loading the engine.
@@ -343,10 +345,12 @@ async def open_simulation(
     built = await inference.open_operation("simulation")
     try:
         controller = await inference.build_controller(app_state.state_store)
-        if isinstance(controller, RetryGate):
+        if isinstance(controller, RateLimitController):
             # Cloud worker: retries share the controller's cooldown and RPM bucket
             # (docs/DECISIONS.md#adr-cloud-retry).
             factory.attach_retry_gate(built, await inference.config(), controller)
+        # A wrong model id or base URL fails here, before seeding.
+        await factory.preflight_cloud_roles(built)
         yield SimulationDeps(
             settings=app_state.settings,
             graph=graph,

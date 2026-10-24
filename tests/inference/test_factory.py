@@ -31,6 +31,7 @@ from alphaswarm.inference.factory import (
     is_cloud_ollama_model,
     is_local_ollama,
     is_loopback_url,
+    preflight_cloud_roles,
 )
 from alphaswarm.inference.ollama_provider import OllamaProvider
 from alphaswarm.inference.openai_provider import OpenAICompatProvider
@@ -673,3 +674,19 @@ class TestAttachRetryGate:
     def test_local_roles_are_skipped(self) -> None:
         cfg = InferenceConfig(orchestrator=_ollama_role(), worker=_openai_role())
         assert attach_retry_gate(self._built(cfg), cfg, self._gate()) == 1
+
+
+async def test_preflight_cloud_roles_prepares_only_cloud_providers() -> None:
+    from unittest.mock import AsyncMock
+
+    from alphaswarm.inference.budget import BudgetMeter
+    from alphaswarm.inference.types import ProviderRole
+    from tests.inference.fakes import FakeInferenceProvider
+
+    local = FakeInferenceProvider(ProviderRole.ORCHESTRATOR, "alphaswarm-orchestrator", scripted=[])
+    cloud = FakeInferenceProvider(ProviderRole.WORKER, "gpt-4o-mini", scripted=[], is_local=False)
+    local.prepare = AsyncMock()  # type: ignore[method-assign]
+    cloud.prepare = AsyncMock()  # type: ignore[method-assign]
+    await preflight_cloud_roles(BuiltProviders(orchestrator=local, worker=cloud, budget_meter=BudgetMeter(None, {})))
+    local.prepare.assert_not_awaited()
+    cloud.prepare.assert_awaited_once()

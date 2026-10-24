@@ -88,8 +88,8 @@ async def test_cycle_id_stored(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) 
     # Task 15a: _run now calls load_inference_config + build_providers/build_controller
     # before run_simulation. Patch these so the test works with the SimpleNamespace stub.
     fake_built = SimpleNamespace(
-        orchestrator=SimpleNamespace(aclose=AsyncMock()),
-        worker=SimpleNamespace(aclose=AsyncMock()),
+        orchestrator=SimpleNamespace(aclose=AsyncMock(), is_local=lambda: True),
+        worker=SimpleNamespace(aclose=AsyncMock(), is_local=lambda: True),
         budget_meter=object(),
     )
     monkeypatch.setattr("alphaswarm.inference.config.load_inference_config", lambda *a, **kw: SimpleNamespace())

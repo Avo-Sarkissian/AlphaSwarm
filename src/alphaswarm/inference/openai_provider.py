@@ -8,7 +8,7 @@ Conforms to the ``InferenceProvider`` protocol without subclassing it.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import Any, Final
 
 import httpx
@@ -39,6 +39,8 @@ log = structlog.get_logger(component="inference.openai")
 # Sentinel: body text indicating the endpoint doesn't support strict JSON schema
 _STRICT_UNSUPPORTED_MARKERS = ("json_schema", "response_format", "strict")
 _PROVIDER: Final = "openai_compatible"
+_PREFLIGHT_TIMEOUT_S: Final = 10.0
+_PREFLIGHT_MAX_RETRIES: Final = 2
 
 # OpenAI finish_reason → normalized finish reason (docs/DECISIONS.md#adr-inference-telemetry).
 _FINISH_REASONS: Final[Mapping[str, FinishReason]] = {
@@ -71,6 +73,19 @@ def _billed_usage(resp: httpx.Response) -> tuple[int | None, int | None]:
         return None, None
 
 
+def _listed_model_ids(payload: object) -> list[str]:
+    """Ids from an OpenAI-style listing: ``{"data": [{"id": ...}]}`` or a bare list."""
+    items = payload.get("data") if isinstance(payload, dict) else payload
+    if not isinstance(items, list):
+        return []
+    return [item["id"] for item in items if isinstance(item, dict) and isinstance(item.get("id"), str)]
+
+
+def _listing_matches(model: str, listed: Iterable[str]) -> bool:
+    """The exact id, or the same id behind a namespace prefix (``models/gemini-2.5-flash``)."""
+    return any(item == model or item.endswith("/" + model) or model.endswith("/" + item) for item in listed)
+
+
 def _excerpt(text: str, limit: int = 200) -> str:
     """Whitespace-collapsed prefix of a provider error body, for one log line."""
     return " ".join(text.split())[:limit]
@@ -80,8 +95,8 @@ class OpenAICompatProvider:
     """HTTP adapter for any OpenAI-compatible chat-completions endpoint.
 
     Lifecycle:
-        ``prepare()`` and ``teardown()`` are no-ops — cloud providers need no
-        model loading.  Call ``await provider.aclose()`` (or use ``async with``)
+        ``prepare()`` runs a preflight once per instance (see ``prepare``);
+        ``teardown()`` is a no-op.  Call ``await provider.aclose()`` (or use ``async with``)
         to close the underlying ``httpx.AsyncClient`` when this instance created
         it; an injected client is left open.
 
@@ -124,6 +139,7 @@ class OpenAICompatProvider:
         # Shared cooldown and RPM pacing in cloud mode; set by factory.attach_retry_gate
         # (docs/DECISIONS.md#adr-cloud-retry).
         self.retry_gate: RetryGate | None = None
+        self._preflighted = False
 
         # Track whether we own the client (so aclose knows whether to close it)
         self._client_owned: bool = client is None
@@ -158,7 +174,52 @@ class OpenAICompatProvider:
         return False
 
     async def prepare(self) -> None:
-        """No-op — cloud providers need no model warm-up."""
+        """Preflight once per instance: does this endpoint serve the model?
+
+        The model listing is only a fast positive (ids may carry a namespace
+        prefix, and some gateways refuse /models); a miss falls back to a
+        1-token completion whose answer is definitive. A wrong model id or base
+        URL raises ProviderConfigError, a bad key AuthError; a transient failure
+        is logged and does not block the run (docs/DECISIONS.md#adr-cloud-retry).
+        """
+        if self._preflighted:
+            return
+        if not await self._listing_includes_model():
+            await self._preflight_completion()
+        self._preflighted = True
+
+    async def _listing_includes_model(self) -> bool:
+        try:
+            resp = await self._client.get(
+                f"{self._base_url}/models", headers=self._headers, timeout=_PREFLIGHT_TIMEOUT_S
+            )
+        except httpx.HTTPError:
+            return False
+        if resp.status_code != 200:
+            return False
+        try:
+            listed = _listed_model_ids(resp.json())
+        except ValueError:
+            return False
+        return _listing_matches(self.model, listed)
+
+    async def _preflight_completion(self) -> None:
+        body: dict[str, Any] = {
+            "model": self.model,
+            "messages": [{"role": "user", "content": "ping"}],
+            "max_tokens": 1,
+        }
+        try:
+            await self._post_with_retry(body, max_retries=min(self._max_retries, _PREFLIGHT_MAX_RETRIES))
+        except (AuthError, ProviderConfigError):
+            raise
+        except InferenceError as exc:
+            log.warning(
+                "cloud_preflight_inconclusive",
+                provider=_PROVIDER,
+                model=self.model,
+                error=str(exc)[:200],
+            )
 
     async def teardown(self) -> None:
         """No-op — cloud providers need no model teardown."""

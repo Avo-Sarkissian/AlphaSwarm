@@ -16,6 +16,7 @@ Public surface:
     build_role_provider — construct one role's provider only (e.g. the interview worker)
     build_controller — select ResourceGovernor (local) or RateLimitController (cloud)
     attach_retry_gate — share the cloud controller's retry gate with same-vendor providers
+    preflight_cloud_roles — run each cloud provider's preflight before seeding
 """
 
 from __future__ import annotations
@@ -442,3 +443,16 @@ def attach_retry_gate(built: BuiltProviders, cfg: InferenceConfig, gate: RetryGa
             inner.retry_gate = gate
             attached += 1
     return attached
+
+
+async def preflight_cloud_roles(built: BuiltProviders) -> None:
+    """Run each cloud provider's preflight (its ``prepare()``) before seeding.
+
+    A wrong model id or base URL raises ProviderConfigError (a bad key AuthError)
+    here, before any Cycle exists. Local providers are skipped: their prepare()
+    loads a model, which run_simulation does at the right moment
+    (docs/DECISIONS.md#adr-cloud-retry).
+    """
+    for provider in (built.orchestrator, built.worker):
+        if not provider.is_local():
+            await provider.prepare()

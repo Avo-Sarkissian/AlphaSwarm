@@ -51,6 +51,7 @@ if TYPE_CHECKING:
 
 log = structlog.get_logger(component="inference.anthropic")
 _PROVIDER: Final = "anthropic"
+_PREFLIGHT_MAX_RETRIES: Final = 2
 
 # Messages API stop_reason → normalized finish reason (docs/DECISIONS.md#adr-inference-telemetry).
 _STOP_REASONS: Final[Mapping[str, FinishReason]] = {
@@ -102,9 +103,10 @@ class AnthropicProvider:
     """Anthropic Messages API adapter.
 
     Lifecycle:
-        ``prepare()`` and ``teardown()`` are no-ops.  Call ``await provider.aclose()``
-        (or use ``async with``) to close the underlying client when this instance
-        created it; an injected client is left open.
+        ``prepare()`` runs a 1-token preflight once per instance; ``teardown()``
+        is a no-op.  Call ``await provider.aclose()`` (or use ``async with``) to
+        close the underlying client when this instance created it; an injected
+        client is left open.
 
     Args:
         role: Whether this instance acts as ORCHESTRATOR or WORKER.
@@ -140,6 +142,7 @@ class AnthropicProvider:
         # Shared cooldown and RPM pacing in cloud mode; set by factory.attach_retry_gate
         # (docs/DECISIONS.md#adr-cloud-retry).
         self.retry_gate: RetryGate | None = None
+        self._preflighted = False
 
         # Track whether we own the client so aclose knows whether to close it
         self._client_owned: bool = client is None
@@ -158,7 +161,33 @@ class AnthropicProvider:
         return False
 
     async def prepare(self) -> None:
-        """No-op — cloud providers need no model warm-up."""
+        """Preflight once per instance with a 1-token request.
+
+        A wrong model id raises ProviderConfigError (a bad key AuthError) before
+        seeding; a transient failure is logged and does not block the run
+        (docs/DECISIONS.md#adr-cloud-retry). It costs at most one output token.
+        """
+        if self._preflighted:
+            return
+        kwargs: dict[str, Any] = {
+            "model": self.model,
+            "max_tokens": 1,
+            "messages": [{"role": "user", "content": "ping"}],
+        }
+        try:
+            await self._call_with_retry(
+                kwargs, use_tool=False, max_retries=min(self._max_retries, _PREFLIGHT_MAX_RETRIES)
+            )
+        except (AuthError, ProviderConfigError):
+            raise
+        except InferenceError as exc:
+            log.warning(
+                "cloud_preflight_inconclusive",
+                provider=_PROVIDER,
+                model=self.model,
+                error=str(exc)[:200],
+            )
+        self._preflighted = True
 
     async def teardown(self) -> None:
         """No-op — cloud providers need no model teardown."""

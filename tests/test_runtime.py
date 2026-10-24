@@ -232,3 +232,45 @@ async def test_open_simulation_shares_the_rate_limit_gate(tmp_path: Path) -> Non
         assert deps.controller is controller
         assert worker.retry_gate is controller
         assert orchestrator.retry_gate is controller
+
+
+async def test_a_bad_model_id_fails_before_seeding(tmp_path: Path) -> None:
+    """The preflight stops the run before any Cycle is written."""
+    import httpx
+
+    from alphaswarm.errors import ProviderConfigError
+    from alphaswarm.inference.budget import BudgetTrackingProvider
+    from alphaswarm.inference.openai_provider import OpenAICompatProvider
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.method == "GET":
+            return httpx.Response(200, json={"data": [{"id": "gpt-4o-mini"}]})
+        return httpx.Response(
+            404,
+            json={"error": {"message": "The model `typo-model` does not exist", "code": "model_not_found"}},
+        )
+
+    runtime = build_runtime(route_test_settings(tmp_path), with_ollama=False, with_neo4j=False)
+    graph = create_autospec(GraphStateManager, instance=True)
+    runtime.app_state.graph_manager = graph
+    meter = BudgetMeter(None, {})
+    worker = BudgetTrackingProvider(
+        OpenAICompatProvider(
+            ProviderRole.WORKER,
+            "typo-model",
+            base_url="https://api.example.com/v1",
+            api_key="test-key",
+            client=httpx.AsyncClient(transport=httpx.MockTransport(handler)),
+        ),
+        meter,
+    )
+    orchestrator = FakeInferenceProvider(ProviderRole.ORCHESTRATOR, "alphaswarm-orchestrator", scripted=[])
+    inference = MagicMock()
+    inference.open_operation = AsyncMock(
+        return_value=BuiltProviders(orchestrator=orchestrator, worker=worker, budget_meter=meter),
+    )
+    inference.build_controller = AsyncMock(return_value=object())
+    with pytest.raises(ProviderConfigError):
+        async with open_simulation(inference, runtime.app_state, state=None):
+            pytest.fail("open_simulation must not yield after a failed preflight")
+    graph.create_cycle_with_seed_event.assert_not_awaited()

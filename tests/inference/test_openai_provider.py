@@ -100,11 +100,6 @@ def test_model_attribute() -> None:
     assert p.model == "claude-3"
 
 
-async def test_prepare_noop() -> None:
-    p = _make_provider(lambda req: _200("hi"))
-    await p.prepare()  # must not raise
-
-
 async def test_teardown_noop() -> None:
     p = _make_provider(lambda req: _200("hi"))
     await p.teardown()  # must not raise
@@ -590,3 +585,94 @@ async def test_malformed_choice_keeps_the_billed_tokens() -> None:
     with pytest.raises(InferenceError) as exc_info:
         await p.chat(_MSG)
     assert (exc_info.value.input_tokens, exc_info.value.output_tokens) == (1200, 40)
+
+
+# ---------------------------------------------------------------------------
+# Preflight (docs/DECISIONS.md#adr-cloud-retry)
+# ---------------------------------------------------------------------------
+
+_LISTING = httpx.Response(200, json={"object": "list", "data": [{"id": "gpt-4o"}, {"id": "gpt-4o-mini"}]})
+
+
+def _routed(models: httpx.Response | Exception, completion: httpx.Response) -> tuple[Any, list[httpx.Request]]:
+    """GET /models answers with ``models``; every POST answers with ``completion``."""
+    seen: list[httpx.Request] = []
+
+    def handler(req: httpx.Request) -> httpx.Response:
+        seen.append(req)
+        if req.method == "GET" and req.url.path.endswith("/models"):
+            if isinstance(models, Exception):
+                raise models
+            return models
+        return completion
+
+    return handler, seen
+
+
+async def test_prepare_runs_the_preflight_once() -> None:
+    handler, seen = _routed(_LISTING, _200("pong"))
+    p = _make_provider(handler, model="gpt-4o")
+    await p.prepare()
+    await p.prepare()
+    assert [r.method for r in seen] == ["GET"]
+    assert seen[0].url.path == "/v1/models"
+
+
+async def test_prefixed_listing_counts_as_a_match() -> None:
+    """Google's OpenAI-compatible endpoint lists `models/gemini-2.5-flash`."""
+    listing = httpx.Response(200, json={"data": [{"id": "models/gemini-2.5-flash"}]})
+    handler, seen = _routed(listing, _error(500))
+    await _make_provider(handler, model="gemini-2.5-flash").prepare()
+    assert [r.method for r in seen] == ["GET"]
+
+
+async def test_bare_list_listing_is_understood() -> None:
+    listing = httpx.Response(200, json=[{"id": "meta-llama/Llama-3.3-70B-Instruct-Turbo"}])
+    handler, seen = _routed(listing, _error(500))
+    await _make_provider(handler, model="meta-llama/Llama-3.3-70B-Instruct-Turbo").prepare()
+    assert [r.method for r in seen] == ["GET"]
+
+
+async def test_missing_from_listing_falls_back_to_a_completion() -> None:
+    """A listing miss is never a verdict; the 1-token completion is."""
+    handler, seen = _routed(_LISTING, _200("p"))
+    await _make_provider(handler, model="meta/llama-3.1-8b-instruct").prepare()
+    assert [r.method for r in seen] == ["GET", "POST"]
+    body = json.loads(seen[1].content)
+    assert (body["model"], body["max_tokens"]) == ("meta/llama-3.1-8b-instruct", 1)
+
+
+async def test_models_endpoint_404_falls_back_to_a_completion() -> None:
+    """Some gateways do not implement /models at all."""
+    handler, seen = _routed(_error(404), _200("p"))
+    await _make_provider(handler, model="gpt-4o").prepare()
+    assert [r.method for r in seen] == ["GET", "POST"]
+
+
+async def test_unknown_model_fails_the_preflight() -> None:
+    handler, _ = _routed(_LISTING, _NOT_FOUND)
+    with pytest.raises(ProviderConfigError):
+        await _make_provider(handler, model="typo-model").prepare()
+
+
+async def test_bad_key_fails_the_preflight_with_auth_error() -> None:
+    handler, _ = _routed(_error(401), _error(401))
+    with pytest.raises(AuthError):
+        await _make_provider(handler).prepare()
+
+
+async def test_transient_preflight_failure_does_not_block(monkeypatch: pytest.MonkeyPatch) -> None:
+    import structlog
+    from structlog.testing import capture_logs
+
+    import alphaswarm.inference.openai_provider as openai_module
+
+    monkeypatch.setattr(openai_module, "log", structlog.get_logger(component="inference.openai"))
+    handler, seen = _routed(httpx.ConnectError("refused"), _error(503))
+    p = _make_provider(handler, model="gpt-4o")
+    with capture_logs() as logs:
+        await p.prepare()
+    assert [e["event"] for e in logs if e["event"] == "cloud_preflight_inconclusive"] == [
+        "cloud_preflight_inconclusive"
+    ]
+    assert len(seen) == 1 + 1 + 2  # listing, completion, two preflight retries
