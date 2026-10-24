@@ -234,6 +234,9 @@ class SimulationSettings(BaseModel):
     retest_round1: bool = False
     # Seeded per-agent traits in every persona (docs/DECISIONS.md#adr-persona-traits).
     persona_traits: bool = True
+    # Experiment flag only: each agent sees a seeded private half of each entity's
+    # headlines (prices shared). Never the default (docs/DECISIONS.md#p40-d-07).
+    private_headlines: bool = False
 
 
 # ---------------------------------------------------------------------------

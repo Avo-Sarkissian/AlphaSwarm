@@ -4,9 +4,12 @@ and seeded persona traits (docs/DECISIONS.md#adr-persona-traits)."""
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from unittest.mock import MagicMock
 
 from alphaswarm.inference.types import ProviderRole
+from alphaswarm.ingestion.providers import FakeMarketDataProvider, FakeNewsProvider
+from alphaswarm.ingestion.types import NewsSlice
 from alphaswarm.settings import AppSettings, SimulationSettings
 from alphaswarm.types import AgentPersona
 from tests.engine.scenario import (
@@ -136,3 +139,37 @@ async def test_modifier_request_carries_no_entity_sentiment(
     user = modifier_call.messages[-1]["content"]
     assert "(type: company)" in user and "sentiment" not in user
     assert _metrics(fake_graph)["modifier_parse_tier"] == 1
+
+
+def _news(headlines_per_entity: int) -> FakeNewsProvider:
+    at = datetime(2026, 10, 3, tzinfo=UTC)
+    return FakeNewsProvider(
+        {
+            name: NewsSlice(
+                entity=name,
+                headlines=tuple(f"{name} headline {i}" for i in range(1, headlines_per_entity + 1)),
+                fetched_at=at,
+                source="fake_news",
+            )
+            for name in ("ZZZT Holdings", "QQQX Robotics")
+        }
+    )
+
+
+async def test_private_headlines_flag_gives_agents_different_blocks(
+    run_scenario: RunScenario, scripted_worker: ScriptedProvider, scenario_settings: AppSettings
+) -> None:
+    scenario_settings.simulation = SimulationSettings(private_headlines=True, sim_seed=101)
+    await run_scenario(num_rounds=2, market_provider=FakeMarketDataProvider(), news_provider=_news(8))
+    users = [c.messages[-1]["content"] for c in round_calls(scripted_worker, 1)]
+    assert len(users) == 100 and len(set(users)) > 1
+    assert all("ZZZT Holdings headline" in u for u in users)
+
+
+async def test_private_headlines_off_shares_one_block(
+    run_scenario: RunScenario, scripted_worker: ScriptedProvider, scenario_settings: AppSettings
+) -> None:
+    scenario_settings.simulation = SimulationSettings(private_headlines=False, sim_seed=101)
+    await run_scenario(num_rounds=2, market_provider=FakeMarketDataProvider(), news_provider=_news(8))
+    users = {c.messages[-1]["content"] for c in round_calls(scripted_worker, 1)}
+    assert len(users) == 1 and "ZZZT Holdings headline 5" in next(iter(users))

@@ -194,6 +194,7 @@ npm --prefix frontend run dev                           # http://localhost:5173
 - With the backend stopped, actions on :5173 show "Cannot reach the backend. Is it running
   on port 8000?": the dev proxy answers 502 `backend_unreachable` and logs `http proxy error`.
 - Fast smoke runs: `ALPHASWARM_NUM_ROUNDS=2`. The UI follows the frame's `num_rounds`.
+- Private-headline experiment: `ALPHASWARM_SIMULATION__PRIVATE_HEADLINES=true` gives each agent a seeded half of each entity's headlines (prices shared). Experiment runs only; never the default (`docs/DECISIONS.md#p40-d-07`).
 - Headless run with live progress output: `uv run python -m alphaswarm run "<rumor>"`.
   It honors `.secrets/inference.json` since 342b285.
 

@@ -38,6 +38,7 @@ def test_experiment_knob_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sim.experiment_tag is None
     assert sim.retest_round1 is False
     assert sim.persona_traits is True
+    assert sim.private_headlines is False
 
 
 def test_experiment_knobs_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -123,6 +124,7 @@ def test_model_dump_is_json_and_complete() -> None:
         "experiment_tag",
         "retest_round1",
         "persona_traits",
+        "private_headlines",
     ):
         assert key in dumped
 

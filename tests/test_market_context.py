@@ -9,8 +9,14 @@ from decimal import Decimal
 import pytest
 
 from alphaswarm.ingestion.providers import FakeMarketDataProvider, FakeNewsProvider
-from alphaswarm.ingestion.types import MarketSlice, NewsSlice
-from alphaswarm.market_context import assemble_market_context, build_context_packet, order_entities
+from alphaswarm.ingestion.types import ContextPacket, MarketSlice, NewsSlice
+from alphaswarm.market_context import (
+    assemble_market_context,
+    build_context_packet,
+    order_entities,
+    private_market_contexts,
+)
+from alphaswarm.personas import generate_personas, load_bracket_configs
 from alphaswarm.types import EntityType, ParsedSeedResult, SeedEntity, SeedEvent
 
 CYCLE = "00000000-0000-4000-8000-0000000000c1"
@@ -108,3 +114,54 @@ async def test_skipped_without_both_providers(
 async def test_all_fetch_failed_yields_no_block() -> None:
     seed = _seed(_e("ZZZT Holdings", 0.9, "ZZZT"), _e("QQQX Robotics", 0.8))
     assert await assemble_market_context(CYCLE, seed, FakeMarketDataProvider(), FakeNewsProvider()) is None
+
+
+def _packet_with_headlines() -> ContextPacket:
+    quote = MarketSlice(ticker="ZZZT", price=Decimal("12.34"), fetched_at=AT, source="fake")
+    news = NewsSlice(
+        entity="ZZZT Holdings", headlines=tuple(f"Headline {i}" for i in range(1, 9)), fetched_at=AT, source="fake_news"
+    )
+    return ContextPacket(
+        cycle_id=CYCLE,
+        as_of=AT,
+        entities=("ZZZT Holdings",),
+        market=(quote,),
+        news=(news,),
+        entity_tickers=(("ZZZT Holdings", "ZZZT"),),
+    )
+
+
+def _headlines(block: str | None) -> tuple[str, ...]:
+    assert block is not None
+    return tuple(line for line in block.splitlines() if line.startswith("  - "))
+
+
+def test_private_contexts_keep_prices_and_vary_headlines() -> None:
+    personas = generate_personas(load_bracket_configs())[:20]
+    blocks = private_market_contexts(_packet_with_headlines(), personas, run_seed="101")
+    assert len(blocks) == 20
+    assert all(b is not None and "12.34" in b for b in blocks)
+    headline_sets = {_headlines(b) for b in blocks}
+    assert len(headline_sets) > 1
+    assert all(len(s) == 4 for s in headline_sets)  # ceil(8 * 0.5)
+
+
+def test_private_contexts_are_deterministic_per_seed() -> None:
+    personas = generate_personas(load_bracket_configs())[:5]
+    first = private_market_contexts(_packet_with_headlines(), personas, run_seed="101")
+    assert first == private_market_contexts(_packet_with_headlines(), personas, run_seed="101")
+    assert first != private_market_contexts(_packet_with_headlines(), personas, run_seed="102")
+
+
+def test_private_contexts_keep_failed_and_empty_news() -> None:
+    packet = _packet_with_headlines()
+    failed = NewsSlice(entity="ZZZT Holdings", fetched_at=AT, source="fake_news", staleness="fetch_failed")
+    packet = packet.model_copy(update={"news": (failed,)})
+    [block] = private_market_contexts(packet, generate_personas(load_bracket_configs())[:1], run_seed="1")
+    assert block is not None and "12.34" in block and not _headlines(block)
+
+
+@pytest.mark.parametrize("fraction", [0.0, -0.1, 1.5])
+def test_keep_fraction_is_validated(fraction: float) -> None:
+    with pytest.raises(ValueError, match="keep_fraction"):
+        private_market_contexts(_packet_with_headlines(), [], run_seed="1", keep_fraction=fraction)

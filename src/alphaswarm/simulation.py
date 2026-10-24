@@ -27,7 +27,7 @@ from alphaswarm.manifest import (
     provenance_from_providers,
     sha256_text,
 )
-from alphaswarm.market_context import assemble_market_context
+from alphaswarm.market_context import build_context_packet, private_market_contexts
 from alphaswarm.metrics import RoundInput, methodology_metrics
 from alphaswarm.personas import compute_prompt_template_hash, generate_personas
 from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS, focal_instrument
@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from alphaswarm.errors import RunErrorCode
     from alphaswarm.graph import CycleStatus, GraphStateManager
     from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.ingestion.types import ContextPacket
     from alphaswarm.settings import SimulationSettings
     from alphaswarm.state import BracketSummary, StateSink
     from alphaswarm.types import (
@@ -237,15 +238,18 @@ class SimulationResult:
         return self._summaries(3)
 
 
-async def _round_1_market_context(deps: SimulationDeps, cycle_id: str, parsed_result: ParsedSeedResult) -> str | None:
-    """The Round 1 block: the recorded fixture when one is set, else the live fetch.
+async def _round_1_market_context(
+    deps: SimulationDeps, cycle_id: str, parsed_result: ParsedSeedResult
+) -> tuple[ContextPacket | None, str | None]:
+    """The Round 1 packet and its block: the recorded fixture when one is set, else the live fetch.
 
     A point-in-time run replaces the live market and news fetch with
     ``deps.context_fixture`` (docs/DECISIONS.md#adr-eval-harness).
     """
     fixture = deps.context_fixture
     if fixture is None:
-        return await assemble_market_context(cycle_id, parsed_result, deps.market, deps.news)
+        packet = await build_context_packet(cycle_id, parsed_result, deps.market, deps.news)
+        return packet, format_market_context(packet) if packet is not None else None
     block = format_market_context(fixture)
     logger.info(
         "context_fixture_used",
@@ -254,7 +258,17 @@ async def _round_1_market_context(deps: SimulationDeps, cycle_id: str, parsed_re
         entity_count=len(fixture.entities),
         rendered=block is not None,
     )
-    return block
+    return fixture, block
+
+
+def _private_contexts(
+    packet: ContextPacket | None, roster: Sequence[AgentPersona], sim_seed: int, sim: SimulationSettings
+) -> tuple[str | None, ...] | None:
+    """Per-agent blocks of the private-headline experiment, or None when it is off
+    (simulation.private_headlines, never the default; docs/DECISIONS.md#p40-d-07)."""
+    if packet is None or not sim.private_headlines:
+        return None
+    return private_market_contexts(packet, roster, run_seed=str(sim_seed))
 
 
 async def _enter_phase(state: StateSink | None, phase: SimulationPhase, *, cycle_id: str | None = None) -> None:
@@ -495,7 +509,7 @@ async def _run_simulation(
     structlog.contextvars.bind_contextvars(cycle_id=cycle_id)
     if state is not None:
         await state.set_cycle(cycle_id)
-    market_context = await _round_1_market_context(deps, cycle_id, parsed_result)
+    packet, market_context = await _round_1_market_context(deps, cycle_id, parsed_result)
     sim_seed = await _record_run_manifest(
         deps, cycle_id, brackets, modifier_result, market_context, git=(git_sha, git_dirty)
     )
@@ -513,6 +527,7 @@ async def _run_simulation(
         on_round_complete=on_round_complete,
         sim_seed=sim_seed,
         focal=focal_instrument(parsed_result.seed_event.entities),
+        private_market_contexts=_private_contexts(packet, roster, sim_seed, settings.simulation),
     )
     outcomes: list[RoundOutcome] = []
     shocks: list[str] = []
