@@ -471,6 +471,12 @@ Contents
   - FastAPI serves `frontend/dist` at `/` when it has been built ([p31-d-02](#p31-d-02)); without a build, `/` serves a short HTML page with the build command (2026-10). In development, Vite on :5173 proxies `/api` and `/ws`, with `changeOrigin: true` on both. When the backend is down, the `/api` proxy answers 502 `backend_unreachable` (`frontend/src/lib/backendUnreachable.ts`) instead of an empty 500, so the UI shows the same "Cannot reach the backend" hint as a failed fetch.
   - Runtime paths (`.env`, the holdings CSV, `.secrets/inference.json`, `advisory/`, `reports/`) resolve against the repository root (`config.PROJECT_ROOT`, `AppSettings.resolve_path`), so the server may start from any directory.
 
+### <a id="adr-instance-lock"></a>One AlphaSwarm process at a time (per-user `flock`)
+- **Decision (2026-10):** `alphaswarm web` (and `start`) and the CLI's `run`, `inject` and `report` take one `fcntl.flock` on `~/.alphaswarm/instance.lock` (override: `ALPHASWARM_INSTANCE_LOCK`) without blocking and hold it for their whole run. A second one exits with code 75 and names the holder (command, pid, start time, URL). `doctor` takes no lock. The server starts only through `alphaswarm web` / `start` (`workers=1`); a hand-written `uvicorn` command skips the lock.
+- **Rationale:** each process unloads the shared aliases at its own idle gaps, so a CLI report during a web run evicted the web job's model. The kernel releases a `flock` when the holder exits, even after SIGKILL, so there is no stale state to clean up.
+- **Rejected (2026-10 audit):** a cross-process ModelLease with pidfiles and `expires_at` heuristics; a lock inside the FastAPI lifespan (every in-process test app would contend for it).
+- **Where:** `instance_lock.py`; `cli.py` (`LOCKED_COMMANDS`, `EXIT_LOCKED`); `scripts/backup_neo4j.sh` refuses to stop Neo4j while a CLI command holds the lock.
+
 ### <a id="adr-frontend-quant-terminal"></a>Frontend: React + TS "Quant Terminal"
 - **Decision:**
   - React 19 + Vite 6 + TypeScript, ported from the AlphaSwarm-2 design export (Phase 41.6).

@@ -162,6 +162,7 @@ source_modules = [
     "alphaswarm.ingestion.types",
     "alphaswarm.ingestion.yfinance_provider",
     "alphaswarm.ingestion.rss_provider",
+    "alphaswarm.instance_lock",
     "alphaswarm.interview",
     "alphaswarm.logging",
     "alphaswarm.manifest",

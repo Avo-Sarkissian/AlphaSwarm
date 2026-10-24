@@ -80,6 +80,27 @@ def hermetic_env(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
         os.environ.update(saved_env)
 
 
+@pytest.fixture(scope="session", autouse=True)
+def isolated_instance_lock(hermetic_env: Path, tmp_path_factory: pytest.TempPathFactory) -> Iterator[Path]:
+    """Point the single-instance lock at a temp file (docs/DECISIONS.md#adr-instance-lock).
+
+    CLI tests run run/inject/report/web, which take the lock; they must never
+    touch ~/.alphaswarm/instance.lock of a developer whose server is running.
+    Subprocesses inherit the same path through ALPHASWARM_INSTANCE_LOCK.
+    """
+    import alphaswarm.instance_lock as instance_lock
+
+    path = tmp_path_factory.mktemp("instance-lock") / "instance.lock"
+    original = instance_lock.DEFAULT_LOCK_PATH
+    instance_lock.DEFAULT_LOCK_PATH = path
+    os.environ[instance_lock.ENV_OVERRIDE] = str(path)
+    try:
+        yield path
+    finally:
+        instance_lock.DEFAULT_LOCK_PATH = original
+        os.environ.pop(instance_lock.ENV_OVERRIDE, None)
+
+
 @pytest.fixture(autouse=True)
 def _reset_hermetic_inference_config(hermetic_env: Path) -> Iterator[None]:
     """Delete the session's inference config after each test so a saved cloud
