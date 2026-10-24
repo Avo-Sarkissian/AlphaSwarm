@@ -49,15 +49,16 @@ ORDERED_STATE_CALLS = frozenset(
 COUNTED_STATE_CALLS = frozenset({"update_agent_state", "push_rationale", "record_tokens"})
 SECOND_SHOCK_TEXT = "ZZZT Holdings raises its offer for QQQX Robotics to $4.6B in cash."
 HEADLINE = "ZZZT Holdings confirms a strategic review"
-# Only ticker-shaped entity names reach MarketDataProvider.get_prices, so the market
-# trace's seed names one ticker next to a company name and a sector.
+# Only swarm-resolved tickers reach MarketDataProvider.get_prices
+# (docs/DECISIONS.md#adr-market-context), so the market trace's seed resolves one
+# ticker next to an unresolved company name and a sector.
 TICKER = "QQQX"
 TICKER_HEADLINE = "QQQX Robotics board weighs the ZZZT offer"
 MARKET_SEED_JSON = json.dumps(
     {
         "entities": [
             {"name": "ZZZT Holdings", "type": "company", "relevance": 0.95, "sentiment": 0.6},
-            {"name": TICKER, "type": "company", "relevance": 0.9, "sentiment": 0.7},
+            {"name": TICKER, "type": "company", "relevance": 0.9, "sentiment": 0.7, "ticker": TICKER},
             {"name": "Industrial Automation", "type": "sector", "relevance": 0.6, "sentiment": 0.4},
         ],
         "overall_sentiment": 0.55,

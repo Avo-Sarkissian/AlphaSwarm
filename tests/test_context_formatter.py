@@ -9,7 +9,7 @@ Phase 40 Plan 02 Task 1. Covers:
   - Empty entities tuple returns None.
   - Budget-greedy fill (no mid-block truncation).
   - Decimal precision preserved via Decimal.__str__.
-  - Company-name entity limitation pin (REVIEWS concern #2).
+  - Ticker-aware join, as-of line and skip-on-overflow (docs/DECISIONS.md#adr-market-context).
 
 F3 (indirect prompt injection) additions:
   - A newline-bearing headline cannot forge a block header or extra bullets.
@@ -365,21 +365,69 @@ def test_headlines_that_sanitize_to_empty_are_dropped() -> None:
     assert not [line for line in out.splitlines() if line.startswith("  - ")]
 
 
-def test_format_market_context_company_name_entity_news_only() -> None:
-    """Phase 40 known limitation (REVIEWS concern #2): orchestrator emits
-    'NVIDIA' not 'ZZZT', so the ZZZT market slice does NOT attach; news
-    attaches because NewsSlice is keyed by the entity name as-emitted."""
+def test_unmapped_company_name_gets_news_only() -> None:
+    """Without a resolved ticker the company keeps its news and gets no price."""
     packet = ContextPacket(
         cycle_id="cid",
         as_of=FIXED_DT,
-        entities=("NVIDIA",),
-        market=(_ms("ZZZT", price="523.45"),),  # ticker shape, not "NVIDIA"
-        news=(_ns("NVIDIA", headlines=("NVIDIA breaks records",)),),
+        entities=("QQQX Robotics",),
+        market=(_ms("QQQX", price="45.60"),),
+        news=(_ns("QQQX Robotics", headlines=("QQQX Robotics weighs bid",)),),
     )
     out = format_market_context(packet)
+    assert out is not None and "Price:" not in out and "QQQX Robotics weighs bid" in out
+
+
+def test_entity_header_and_price_use_the_resolved_ticker() -> None:
+    packet = ContextPacket(
+        cycle_id="cid",
+        as_of=FIXED_DT,
+        entities=("ZZZT Holdings",),
+        market=(_ms("ZZZT", price="12.34"),),
+        news=(),
+        entity_tickers=(("ZZZT Holdings", "ZZZT"),),
+    )
+    out = format_market_context(packet)
+    assert out == "== ZZZT Holdings (ZZZT) ==\nPrice: $12.34"
+
+
+def test_price_line_shows_as_of_and_stale() -> None:
+    friday = datetime(2026, 10, 2, 20, 0, tzinfo=UTC)
+    stale = MarketSlice(
+        ticker="ZZZT",
+        price=Decimal("12.34"),
+        fetched_at=FIXED_DT,
+        as_of=friday,
+        source="test",
+        staleness="stale",
+    )
+    fresh = stale.model_copy(update={"staleness": "fresh"})
+    unknown = MarketSlice(ticker="ZZZT", price=Decimal("12.34"), fetched_at=FIXED_DT, source="test", staleness="stale")
+
+    def line(m: MarketSlice) -> str:
+        out = format_market_context(ContextPacket(cycle_id="cid", as_of=FIXED_DT, entities=("ZZZT",), market=(m,)))
+        assert out is not None
+        return out.splitlines()[1]
+
+    assert line(stale) == "Price: $12.34 (as of 2026-10-02 20:00 UTC, stale)"
+    assert line(fresh) == "Price: $12.34 (as of 2026-10-02 20:00 UTC)"
+    assert line(unknown) == "Price: $12.34 (stale)"
+
+
+def test_overflowing_entity_is_skipped_not_the_rest() -> None:
+    long_news = _ns("QQQX Robotics", headlines=tuple("x" * 120 for _ in range(5)))
+    packet = ContextPacket(
+        cycle_id="cid",
+        as_of=FIXED_DT,
+        entities=("ZZZT", "QQQX Robotics", "XQZW"),
+        market=(_ms("ZZZT"), _ms("XQZW")),
+        news=(long_news,),
+    )
+    out = format_market_context(packet, budget=120)
     assert out is not None
-    assert "== NVIDIA ==" in out
-    assert "Recent headlines:" in out
-    assert "NVIDIA breaks records" in out
-    assert "Price:" not in out  # KNOWN LIMITATION pinned
-    assert "Fundamentals:" not in out
+    assert "== ZZZT ==" in out and "== XQZW ==" in out and "QQQX" not in out
+
+
+def test_legacy_packet_joins_by_name_when_entity_is_a_ticker() -> None:
+    packet = ContextPacket(cycle_id="cid", as_of=FIXED_DT, entities=("ZZZT",), market=(_ms("ZZZT", price="9.99"),))
+    assert format_market_context(packet) == "== ZZZT ==\nPrice: $9.99"

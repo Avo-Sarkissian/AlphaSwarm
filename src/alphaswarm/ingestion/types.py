@@ -100,3 +100,6 @@ class ContextPacket(BaseModel):
     entities: tuple[str, ...]
     market: tuple[MarketSlice, ...] = Field(default_factory=tuple)
     news: tuple[NewsSlice, ...] = Field(default_factory=tuple)
+    # Entity name -> swarm-resolved ticker (docs/DECISIONS.md#adr-ticker-resolution),
+    # as pairs: a dict would stay mutable inside the frozen model.
+    entity_tickers: tuple[tuple[str, str], ...] = Field(default_factory=tuple)

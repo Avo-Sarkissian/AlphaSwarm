@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -55,9 +56,15 @@ class _RecordingNews(FakeNewsProvider):
         super().__init__()
         self.calls: list[str] = []
 
-    async def get_headlines(self, entities: list[str], *, max_age_hours: int = 72) -> dict[str, NewsSlice]:
+    async def get_headlines(
+        self,
+        entities: list[str],
+        *,
+        max_age_hours: int = 72,
+        tickers: Mapping[str, str] | None = None,
+    ) -> dict[str, NewsSlice]:
         self.calls.append("get_headlines")
-        return await super().get_headlines(entities, max_age_hours=max_age_hours)
+        return await super().get_headlines(entities, max_age_hours=max_age_hours, tickers=tickers)
 
 
 async def test_round1_prompts_carry_the_fixture_block(run_scenario: Any, scripted_worker: Any) -> None:

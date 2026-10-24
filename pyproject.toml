@@ -169,6 +169,7 @@ source_modules = [
     "alphaswarm.interview",
     "alphaswarm.logging",
     "alphaswarm.manifest",
+    "alphaswarm.market_context",
     "alphaswarm.memory_monitor",
     "alphaswarm.metrics",
     "alphaswarm.ollama_client",

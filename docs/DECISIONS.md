@@ -434,6 +434,7 @@ Contents
 - **Decision:**
   - One formatted block per run: price, fundamentals, and 5 headlines per entity.
   - Sent in rounds 1..`market_context_rounds` (default 3, i.e. every round; revised 2026-10 under the owner's delegation), announced by the fixed MARKET_CONTEXT_GUARD system message and fenced as untrusted data in the user message (since F3, Aug 2026), ahead of the fenced peer block. RSS headlines are sanitized.
+  - Phase 7: entities are ordered by relevance and a block that would overflow the budget is skipped, not the rest; only swarm-resolved tickers ([adr-ticker-resolution](#adr-ticker-resolution)) are priced and get the Yahoo feed; prices join their company by ticker and show the quote time and a stale marker. Code: alphaswarm/market_context.py, context_formatter.py.
 - **Rationale:** Treat third-party text as untrusted. Dropping the block after Round 1 ([Phase 40](#phase-40-simulation-context-wiring)) confounded every Round 2 flip with information loss ([adr-run-manifest](#adr-run-manifest)); the original reason for the Round 1 limit was never recorded. Keeping it costs the block's prompt tokens on every call of Rounds 2..N; that cost is not measured yet (the A0 baseline in docs/experiments.md records `r{n}_mean_prompt_tokens`). `market_context_rounds=1` restores the Round 1-only behaviour for ablations.
 
 ### <a id="adr-ticker-resolution"></a>Seed-entity tickers are resolved on the swarm side (Phase 7)
@@ -864,9 +865,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 
 | ID | Decision and rationale | Status | Referenced from |
 |---|---|---|---|
-| <a id="p40-d-01"></a>`D-01` | ContextPacket assembled inside run_simulation after seed extraction when both providers are present. | active | simulation.py:assemble_market_context,_round_1_market_context |
-| <a id="p40-d-02"></a>`D-02` | No providers -> log context_assembly_skipped and continue rumor-only. | active | simulation.py:assemble_market_context |
-| <a id="p40-d-03"></a>`D-03` | Partial fetch failures kept in the packet; formatter silently skips fetch_failed slices. | active | context_formatter.py:6; simulation.py:assemble_market_context; tests/test_context_formatter.py:6 |
+| <a id="p40-d-01"></a>`D-01` | ContextPacket assembled inside run_simulation after seed extraction when both providers are present. | active | market_context.py:build_context_packet; simulation.py:_round_1_market_context |
+| <a id="p40-d-02"></a>`D-02` | No providers -> log context_assembly_skipped and continue rumor-only. | active | market_context.py:build_context_packet |
+| <a id="p40-d-03"></a>`D-03` | Partial fetch failures kept in the packet; formatter silently skips fetch_failed slices. | active | context_formatter.py:6; market_context.py:build_context_packet; tests/test_context_formatter.py:6 |
 | <a id="p40-d-04"></a>`D-04` | Market context is its own system message after the persona and before peer context/user message. Since F3 (Aug 2026) and SPEC T7.6 (2026-10) only fixed guard texts are system messages; the market and peer blocks are fenced in the user message, market first. | partial | rounds.py:run_round; worker.py:155; tests/test_worker.py:219,248 |
 | <a id="p40-d-06"></a>`D-06` | Market context goes to Round 1 only. Superseded 2026-10: rounds 1..market_context_rounds, default every round ([adr-market-context](#adr-market-context)). | superseded | rounds.py (prepare_round_inputs); settings.py (SimulationSettings.market_context_rounds); tests/engine/test_round_inputs.py (test_market_block_reaches_the_configured_rounds) |
 | <a id="p40-d-07"></a>`D-07` | One formatted block shared by all 100 agents (no per-bracket filtering). | active | batch_dispatcher.py:176; tests/test_batch_dispatcher.py:691,699,734 |
@@ -1050,7 +1051,7 @@ code. Their status is in BACKLOG.md.
 | <a id="t-36-14"></a>T-36-14 | Blocking `Path.exists/stat` on the event loop. Uses `aiofiles.os` | web/routes/advisory.py:4; web/routes/report.py:get_report; tests/test_report_routes.py:test_routes_use_async_filesystem_probes |
 | <a id="t-36-15"></a>T-36-15 | Background task errors lost, leaving the UI polling forever. A done-callback records per-cycle errors and GET returns 500 | web/app.py:100; web/routes/advisory.py:5,268; services/jobs.py:JobRunner; web/routes/report.py:get_report; tests/test_report_routes.py |
 | <a id="t-36-16"></a>T-36-16 | Non-atomic report/advisory file write, partial read possible. Fixed 2026-10: both writes go through `fsutil.atomic_write_text` (temp file, fsync, `os.replace`, owner-only) | fsutil.py; report.py:write_report_files; web/routes/advisory.py:8 |
-| <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:43,89; simulation.py:_TICKER_RE; tests/test_rss_provider.py:142,164,549 |
+| <a id="t-38-01"></a>T-38-01 | URL injection through entity strings into RSS URLs. Ticker whitelist `^[A-Z]{1,5}$`; Google News query percent-encoded | ingestion/rss_provider.py:_TICKER_RE; types.py:TICKER_PATTERN; tests/test_rss_provider.py:142,164,549 |
 | <a id="t-39-06"></a>T-39-06 | Holdings 503 leaking filesystem path or exception text. Generic body only | web/routes/holdings.py:25,87,93,141; tests/unit/test_holdings_route.py:14,215,259 |
 | <a id="t-41-6-13"></a>T-41.6-13 | XSS through interview responses. Rendered as plain text, not markdown | fe/features/interview/InterviewPanel.tsx |
 | <a id="t-260512-jqn-03"></a>T-260512-jqn-03 | Data-source audit buffer leaking raw bodies or env vars. Only bounded summary fields are recorded | data_audit.py:14,83; tests/test_data_audit.py:68 |
