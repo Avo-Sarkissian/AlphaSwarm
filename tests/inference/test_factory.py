@@ -630,3 +630,16 @@ class TestTypedFactory:
         assert controller["governor_settings"].annotation == "GovernorSettings"
         assert controller["state_store"].annotation == "StateStore | None"
         assert "Lazy import avoids circular dependency" not in inspect.getsource(factory)
+
+
+def test_anthropic_receives_max_retries_from_limits() -> None:
+    """The Anthropic path used to ignore ProviderLimits.max_retries."""
+    cfg = InferenceConfig(
+        orchestrator=_ollama_role(),
+        worker=_anthropic_role(),
+        limits={ProviderType.ANTHROPIC: ProviderLimits(max_retries=8)},
+    )
+    built = build_providers(cfg, ollama_client=_fake_ollama_client(), ollama_model_manager=_fake_model_manager())
+    inner = built.worker._inner  # type: ignore[union-attr]
+    assert isinstance(inner, AnthropicProvider)
+    assert inner._max_retries == 8

@@ -237,9 +237,9 @@ def _build_single_provider(
 ) -> InferenceProvider:
     """Construct a single provider and optionally wrap it in a BudgetTrackingProvider.
 
-    ``max_retries`` is forwarded to the OpenAI-compatible adapter so callers can
-    raise the 429/5xx retry budget for rate-limited free tiers (defaults to 3,
-    preserving prior behavior; the Anthropic path is unaffected).
+    ``max_retries`` is forwarded to both cloud adapters so callers can raise the
+    429/5xx retry budget for rate-limited free tiers (defaults to 3; the Anthropic
+    path receives the same budget, docs/DECISIONS.md#adr-cloud-retry).
     """
     if provider_type == ProviderType.OLLAMA:
         if ollama_client is None:
@@ -271,7 +271,7 @@ def _build_single_provider(
         # _validate_cloud_role above raised for an empty key/base_url, so `or ""` never
         # changes the value; it only narrows `str | None` to `str` for mypy.
         inner: InferenceProvider = AnthropicProvider(
-            role, model, api_key=api_key or "", max_tokens_default=max_tokens_default
+            role, model, api_key=api_key or "", max_tokens_default=max_tokens_default, max_retries=max_retries
         )
     elif provider_type == ProviderType.OPENAI_COMPATIBLE:
         inner = OpenAICompatProvider(
