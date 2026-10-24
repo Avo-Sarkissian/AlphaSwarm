@@ -40,7 +40,8 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `simulation.py`: `run_simulation`, a loop over `settings.num_rounds`: seeding, the market context, the run seed and run manifest, phase transitions, one worker load and one governor session for every round, the cycle metrics and status ([adr-round-runner](DECISIONS.md#adr-round-runner)).
   - `rounds.py`: `run_round` (shock-gate side effects, peers, dispatch, round-abort check, citation filtering, `persist_round`, influence edges, bracket summaries, experiment metrics, callback), `prepare_round_inputs` (one `RoundInputs` per round), `retest_round1`, `SimulationDeps`, `RoundContext`, `RoundOutcome`, shift metrics.
   - `peers.py`: seeded stratified (or random, or no) peer selection, peer-context rendering and exposures, the seeded control holdout and shock arm, the own-prior lines, and `build_round_context`.
-  - `metrics.py`: pure measurement functions: citation filtering and validity, citation rate given exposure, control/treated flips (`split_flips`), the retest noise floor and bootstrap intervals.
+  - `consensus.py`: net score (headcount, reach, bracket-equal), dispersion, bootstrap CI ([adr-consensus-estimators](DECISIONS.md#adr-consensus-estimators)).
+  - `metrics.py`: pure measurement functions: citation filtering and validity, citation rate given exposure, control/treated flips (`split_flips`), the retest noise floor and bootstrap intervals, and the round estimators (entropy, polarization, transitions, conformity, citation Gini) that `methodology_metrics` composes into `metrics_version` 3.
   - `manifest.py`: git state, blake2b run and call seeds, `ModelRef`/`RunProvenance`, `RunManifest` ([adr-run-manifest](DECISIONS.md#adr-run-manifest)).
   - `batch_dispatcher.py`: `dispatch_wave`, a TaskGroup of 100 jittered inferences.
   - `worker.py`: `AgentWorker`, the decision JSON schema, and the fence for untrusted market data.
@@ -66,10 +67,11 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `fsutil.py`: `atomic_write_text`, the all-or-nothing writer for report and advisory files.
 - **Ingestion**
   - `ingestion/`: MarketDataProvider and NewsProvider protocols with fakes, the yfinance and RSS providers, and frozen pydantic slices. Providers never raise.
+  - `ingestion/tickers.py`: swarm-side `TickerResolver` over the cached SEC map; `inject_seed` runs it before the Cycle is written ([adr-ticker-resolution](DECISIONS.md#adr-ticker-resolution)).
 - **Post-run features**
   - `report.py` + `templates/report/*.j2`: data collection, one grounded narrative call (`chat_structured`), rendering and sections.
   - `interview.py`: a multi-turn engine keeping up to 12 user/assistant pairs; older pairs are folded six at a time into a summary.
-  - `advisory/`: synthesis, prompt, sector map, types.
+  - `advisory/`: synthesis, prompt, sector map, types, and `evidence.py` (per-holding swarm signal, support and evidence ids, joined after the LLM call; [adr-grounded-advisory](DECISIONS.md#adr-grounded-advisory)).
   - `holdings/`: CSV loader and types. Only `advisory`, `services.advisory` (types only) and `web.routes.holdings` may import it; import-linter enforces this.
 - **State and observability**
   - `state.py`: StateStore, ReplayStore, snapshot dataclasses, and the `StateSink` protocol: the StateStore methods the engine (`run_simulation`, `run_round`, `dispatch_wave`, `AgentWorker`) writes through. `StateStore` satisfies it; web-only calls such as `set_last_error` stay off it ([adr-round-runner](DECISIONS.md#adr-round-runner)).
@@ -155,7 +157,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 (:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, status, error_code, num_rounds,
          modifiers_json, prompt_template_hash, run_manifest_json, sim_seed, experiment_tag,
          <metrics>, metrics_recorded_at})
-    -[:MENTIONS {relevance, sentiment}]->(:Entity {name, type})
+    -[:MENTIONS {relevance, sentiment, ticker}]->(:Entity {name, type})
 (:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment,
                               rationale, control, error_kind, parse_tier, peer_ids,
                               citations_invalid, shock_treated, narrative})
