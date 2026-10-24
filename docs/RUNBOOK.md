@@ -170,6 +170,18 @@ trusts every other proposed symbol; check `ticker_map_loaded source=sec` in the 
   It builds `AppSettings()` (`scripts/compare_cycles.py:56`), which reads the
   repo root's `.env` whatever the current directory.
 
+### Export, list and delete one cycle
+
+```bash
+uv run alphaswarm cycles list --limit 20                  # complete cycles, newest first
+uv run alphaswarm cycles list --status all                # running, failed and cancelled too
+uv run alphaswarm cycles export <cycle_id> -o exports/<cycle_id>.json
+uv run alphaswarm cycles delete <cycle_id>                # asks for the first 8 characters of the id
+```
+
+- Exports are compact `alphaswarm.cycle-export/1` JSON (about 100-300 KB per 3-round cycle) and never contain holdings, advisory output or peer prompt text (`docs/DECISIONS.md#adr-cycle-export`).
+- Delete prints what it removes and keeps first, refuses an unknown or running cycle, and keeps the cycle's `reports/` and `advisory/` files (it prints their paths). Back up first (`./scripts/backup_neo4j.sh`) if you might want the cycle back; an export is not a restore format.
+
 ## 4. Running the stack for development
 
 - **One AlphaSwarm process at a time.** `alphaswarm web` (or `./start`) holds `~/.alphaswarm/instance.lock`; `alphaswarm run`, `inject` or `report` started meanwhile exit with code 75 and name the holder. Run jobs from the web UI while the server is up. `alphaswarm doctor` never takes the lock. A crashed process releases it automatically.

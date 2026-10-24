@@ -237,6 +237,19 @@ _SCOPED_CLEANUP: Final[tuple[str, ...]] = (
 )
 
 
+def pytest_configure(config: pytest.Config) -> None:
+    """Mark the main thread's event loop as explicitly unset.
+
+    pytest-asyncio saves "the current loop" around every loop it creates by calling
+    asyncio.get_event_loop(); on Python 3.11, with no loop ever set, that call creates
+    an implicit loop nobody closes. The next asyncio.run() in a sync test (the CLI
+    tests) drops it unclosed, and its ResourceWarning fails whichever test is running
+    at the next garbage collection. After set_event_loop(None), get_event_loop()
+    raises instead, so no such loop exists.
+    """
+    asyncio.set_event_loop(None)
+
+
 def pytest_addoption(parser: pytest.Parser) -> None:
     parser.addoption(
         "--require-neo4j",

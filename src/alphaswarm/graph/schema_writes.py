@@ -18,7 +18,14 @@ from typing import TYPE_CHECKING, Any, Final
 import structlog
 
 from alphaswarm.errors import Neo4jWriteError
-from alphaswarm.graph.rows import _LEGACY_COMPLETE, CitationPairRow, InfluenceEdgeRow, PersistRoundResult, TxRunner
+from alphaswarm.graph.rows import (
+    _LEGACY_COMPLETE,
+    AutoCommitRunner,
+    CitationPairRow,
+    InfluenceEdgeRow,
+    PersistRoundResult,
+    TxRunner,
+)
 from alphaswarm.influence import citation_weights
 
 if TYPE_CHECKING:
@@ -937,3 +944,69 @@ async def _write_run_manifest_tx(
     )
     record = await result.single()
     return int(record["matched"]) if record else 0
+
+
+#: Upper bound for delete_cycle batches; the batch size is interpolated, so it is validated.
+DELETE_BATCH_MAX: Final = 100_000
+
+_DELETE_CYCLE_NODE: Final = """
+MATCH (c:Cycle {cycle_id: $cycle_id})
+OPTIONAL MATCH (c)-[:MENTIONS]->(e:Entity)
+WITH c, collect(e) AS entities
+DETACH DELETE c
+WITH entities
+UNWIND entities AS e
+WITH e WHERE NOT (e)--()
+DELETE e
+"""
+
+
+async def delete_cycle(
+    read: TxRunner,
+    auto_commit: AutoCommitRunner,
+    cycle_id: str,
+    *,
+    batch_size: int = 1000,
+) -> int:
+    """Delete one cycle and return how many cycle-owned nodes went
+    (docs/DECISIONS.md#adr-cycle-export).
+
+    INFLUENCED_BY edges, RationaleEpisodes, legacy Posts and Decisions go in
+    ``CALL { … } IN TRANSACTIONS`` batches, then the ShockEvents, then the Cycle
+    node itself, so an interrupted delete can simply be run again. Agent nodes
+    are shared and kept; an Entity goes only when nothing else references it.
+    """
+    if not 1 <= batch_size <= DELETE_BATCH_MAX:
+        raise ValueError(f"batch_size must be in 1..{DELETE_BATCH_MAX}, got {batch_size}")
+    nodes = await read(_count_cycle_nodes_tx, cycle_id, op="delete_cycle")
+    if nodes == 0:
+        return 0
+    batch = f"IN TRANSACTIONS OF {int(batch_size)} ROWS"
+    statements = (
+        f"MATCH ()-[r:INFLUENCED_BY {{cycle_id: $cycle_id}}]->() CALL (r) {{ DELETE r }} {batch}",
+        f"MATCH (n:RationaleEpisode {{cycle_id: $cycle_id}}) CALL (n) {{ DETACH DELETE n }} {batch}",
+        f"MATCH (n:Post {{cycle_id: $cycle_id}}) CALL (n) {{ DETACH DELETE n }} {batch}",
+        f"MATCH (n:Decision {{cycle_id: $cycle_id}}) CALL (n) {{ DETACH DELETE n }} {batch}",
+        "MATCH (:Cycle {cycle_id: $cycle_id})-[:HAS_SHOCK]->(se:ShockEvent) DETACH DELETE se",
+        _DELETE_CYCLE_NODE,
+    )
+    for statement in statements:
+        await auto_commit(statement, op="delete_cycle", cycle_id=cycle_id)
+    log.info("cycle_deleted", cycle_id=cycle_id, nodes=nodes, batch_size=batch_size)
+    return nodes
+
+
+async def _count_cycle_nodes_tx(tx: AsyncManagedTransaction, cycle_id: str) -> int:
+    result = await tx.run(
+        """
+        MATCH (c:Cycle {cycle_id: $cycle_id})
+        RETURN 1
+            + COUNT { MATCH (:Decision {cycle_id: $cycle_id}) }
+            + COUNT { MATCH (:RationaleEpisode {cycle_id: $cycle_id}) }
+            + COUNT { MATCH (:Post {cycle_id: $cycle_id}) }
+            + COUNT { MATCH (c)-[:HAS_SHOCK]->(:ShockEvent) } AS nodes
+        """,
+        cycle_id=cycle_id,
+    )
+    record = await result.single()
+    return int(record["nodes"]) if record else 0

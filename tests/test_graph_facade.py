@@ -26,7 +26,7 @@ from tests.support.manifests import make_manifest
 SRC = Path(__file__).resolve().parents[1] / "src" / "alphaswarm"
 CYCLE_ID = "00000000-0000-4000-8000-000000000015"
 RUMOR = "ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash."
-SESSION_OWNERS = frozenset({"_read", "_write", "ensure_schema"})
+SESSION_OWNERS = frozenset({"_read", "_write", "_auto_commit", "ensure_schema"})
 
 
 def _graph_sources() -> list[Path]:
@@ -108,6 +108,7 @@ OUTAGE_CALLS: dict[str, Call] = {
         num_rounds=3,
     ),
     "cycle_exists": lambda gm: gm.cycle_exists(CYCLE_ID),
+    "delete_cycle": lambda gm: gm.delete_cycle(CYCLE_ID),
     "ensure_schema": lambda gm: gm.ensure_schema(),
     "read_agent_decisions": lambda gm: gm.read_agent_decisions(CYCLE_ID, "quants_01"),
     "read_agent_interview_rows": lambda gm: gm.read_agent_interview_rows("quants_01", CYCLE_ID),
@@ -116,6 +117,7 @@ OUTAGE_CALLS: dict[str, Call] = {
     "read_completed_cycles": lambda gm: gm.read_completed_cycles(),
     "read_consensus_summary": lambda gm: gm.read_consensus_summary(CYCLE_ID),
     "read_cycle_entities": lambda gm: gm.read_cycle_entities(CYCLE_ID),
+    "read_cycle_export_rows": lambda gm: gm.read_cycle_export_rows(CYCLE_ID),
     "read_cycle_seed": lambda gm: gm.read_cycle_seed(CYCLE_ID),
     "read_cycle_status": lambda gm: gm.read_cycle_status(CYCLE_ID),
     "read_decision_narrative": lambda gm: gm.read_decision_narrative(CYCLE_ID, "quants_01"),
@@ -128,6 +130,7 @@ OUTAGE_CALLS: dict[str, Call] = {
     "read_latest_cycle_id": lambda gm: gm.read_latest_cycle_id(),
     "read_persona_trait_seed": lambda gm: gm.read_persona_trait_seed(CYCLE_ID),
     "read_rationale_entries_for_round": lambda gm: gm.read_rationale_entries_for_round(CYCLE_ID, 1),
+    "read_round_citations": lambda gm: gm.read_round_citations(CYCLE_ID, 2),
     "read_round_timeline": lambda gm: gm.read_round_timeline(CYCLE_ID),
     "read_shock_event": lambda gm: gm.read_shock_event(CYCLE_ID),
     "read_shock_impact": lambda gm: gm.read_shock_impact(CYCLE_ID),
@@ -212,6 +215,7 @@ DELEGATES: dict[str, str] = {
     "read_influence_edges": "analytics",
     "read_influence_leaders": "analytics",
     "read_key_dissenters": "analytics",
+    "read_round_citations": "analytics",
     "read_round_timeline": "analytics",
     "read_shock_event": "analytics",
     "read_shock_impact": "analytics",
@@ -223,6 +227,7 @@ DELEGATES: dict[str, str] = {
     "read_bracket_narratives_for_round": "replay_interview",
     "read_completed_cycles": "replay_interview",
     "read_cycle_entities": "replay_interview",
+    "read_cycle_export_rows": "replay_interview",
     "read_cycle_seed": "replay_interview",
     "read_cycle_status": "replay_interview",
     "read_decision_narrative": "replay_interview",
@@ -233,6 +238,7 @@ DELEGATES: dict[str, str] = {
     # graph/schema_writes.py
     "compute_influence_edges": "schema_writes",
     "create_cycle_with_seed_event": "schema_writes",
+    "delete_cycle": "schema_writes",
     "persist_round": "schema_writes",
     "remove_legacy_properties": "schema_writes",
     "seed_agents": "schema_writes",
@@ -296,7 +302,8 @@ MANAGER = SRC / "graph" / "manager.py"
 
 
 def test_facade_stays_small() -> None:
-    assert len(MANAGER.read_text(encoding="utf-8").splitlines()) <= 310
+    # 320: the export/delete delegations and _auto_commit (docs/DECISIONS.md#adr-cycle-export)
+    assert len(MANAGER.read_text(encoding="utf-8").splitlines()) <= 320
 
 
 def test_manager_keeps_no_transaction_functions() -> None:

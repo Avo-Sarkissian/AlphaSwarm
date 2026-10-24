@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Any, Final
 import structlog
 
 from alphaswarm.graph.rows import (
+    UNKNOWN_SIGNAL,
     BracketNarrativeRow,
     ConsensusSummaryRow,
     EntityImpactRow,
@@ -20,6 +21,7 @@ from alphaswarm.graph.rows import (
     InfluenceEdgeRow,
     InfluenceLeaderRow,
     KeyDissenterRow,
+    RoundCitationRow,
     RoundTimelineRow,
     ShockEventRow,
     ShockImpactRow,
@@ -594,3 +596,48 @@ async def read_final_round_decisions(read: TxRunner, cycle_id: str) -> list[Fina
     ]
     log.debug("final_round_decisions_read", cycle_id=cycle_id, count=len(rows))
     return rows
+
+
+async def read_round_citations(read: TxRunner, cycle_id: str, round_num: int) -> list[RoundCitationRow]:
+    """Citations made in *round_num*, each with the signal the cited agent held in
+    round_num - 1 (docs/DECISIONS.md#adr-neo4j-schema).
+
+    Per round, never the cumulative INFLUENCED_BY union used for peer weighting.
+    Round 1 has no peer context, so it returns [] without a query. Self-citations
+    are dropped and duplicate CITED edges collapse to one pair.
+    """
+    if round_num < 2:
+        return []
+    rows = await read(_read_round_citations_tx, cycle_id, round_num, op="read_round_citations")
+    log.debug("round_citations_read", cycle_id=cycle_id, round_num=round_num, count=len(rows))
+    return rows
+
+
+async def _read_round_citations_tx(
+    tx: AsyncManagedTransaction,
+    cycle_id: str,
+    round_num: int,
+) -> list[RoundCitationRow]:
+    result = await tx.run(
+        """
+        MATCH (author:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id, round: $round_num})
+              -[:CITED]->(cited:Agent)
+        WHERE author.id <> cited.id
+        WITH DISTINCT author.id AS source_id, cited
+        OPTIONAL MATCH (cited)-[:MADE]->(prev:Decision {cycle_id: $cycle_id, round: $prev_round})
+        WITH source_id, cited, head(collect(toLower(prev.signal))) AS cited_signal
+        RETURN source_id, cited.id AS target_id, cited_signal
+        ORDER BY source_id, target_id
+        """,
+        cycle_id=cycle_id,
+        round_num=round_num,
+        prev_round=round_num - 1,
+    )
+    return [
+        RoundCitationRow(
+            source_id=str(r["source_id"]),
+            target_id=str(r["target_id"]),
+            cited_signal=str(r["cited_signal"]) if r["cited_signal"] is not None else UNKNOWN_SIGNAL,
+        )
+        async for r in result
+    ]

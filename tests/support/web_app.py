@@ -47,6 +47,8 @@ class FakeCycleGraph:
         contexts: Mapping[tuple[str, str], AgentInterviewRows] | None = None,
         cycles: Sequence[Mapping[str, object]] = (),
         decisions: Mapping[tuple[str, str], Sequence[Mapping[str, object]]] | None = None,
+        citations: Mapping[tuple[str, int], Sequence[Mapping[str, object]]] | None = None,
+        export_rows: Mapping[str, Mapping[str, object]] | None = None,
     ) -> None:
         self.statuses: dict[str, str] = dict(statuses or {})
         self.latest = latest
@@ -59,6 +61,10 @@ class FakeCycleGraph:
         self.cycle_calls: list[tuple[int, datetime | None]] = []
         self.decisions = {key: [dict(r) for r in rows] for key, rows in (decisions or {}).items()}
         self.decision_calls: list[tuple[str, str]] = []
+        self.citations = {key: [dict(r) for r in rows] for key, rows in (citations or {}).items()}
+        self.citation_calls: list[tuple[str, int]] = []
+        self.export_rows = {key: dict(value) for key, value in (export_rows or {}).items()}
+        self.export_calls: list[str] = []
 
     async def read_cycle_status(self, cycle_id: str) -> str | None:
         self.status_calls.append(cycle_id)
@@ -122,6 +128,21 @@ class FakeCycleGraph:
     async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[dict[str, object]]:
         self.decision_calls.append((cycle_id, agent_id))
         return list(self.decisions.get((cycle_id, agent_id), []))
+
+    async def read_round_citations(self, cycle_id: str, round_num: int) -> list[dict[str, object]]:
+        self.citation_calls.append((cycle_id, round_num))
+        return list(self.citations.get((cycle_id, round_num), []))
+
+    async def read_cycle_export_rows(self, cycle_id: str) -> dict[str, object]:
+        self.export_calls.append(cycle_id)
+        empty: dict[str, object] = {
+            "cycle": None,
+            "agents": [],
+            "decisions": [],
+            "citations": [],
+            "shocks": [],
+        }
+        return dict(self.export_rows.get(cycle_id, empty))
 
     async def close(self) -> None:
         return None

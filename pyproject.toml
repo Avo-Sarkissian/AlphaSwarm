@@ -136,6 +136,7 @@ source_modules = [
     "alphaswarm.doctor",
     "alphaswarm.episodes",
     "alphaswarm.errors",
+    "alphaswarm.export",
     "alphaswarm.evaluation",
     "alphaswarm.fsutil",
     "alphaswarm.governor",
@@ -208,6 +209,7 @@ source_modules = [
     "alphaswarm.web.simulation_manager",
     "alphaswarm.web.routes",
     "alphaswarm.web.routes.agents",
+    "alphaswarm.web.routes.cycles",
     "alphaswarm.web.routes.edges",
     "alphaswarm.web.routes.health",
     "alphaswarm.web.routes.interview",
@@ -271,3 +273,9 @@ layers = [
     "alphaswarm.report : alphaswarm.interview : alphaswarm.simulation : alphaswarm.rounds : alphaswarm.peers",
     "alphaswarm.graph",
 ]
+
+[[tool.importlinter.contracts]]
+name = "Export isolation — the cycle export never reaches holdings or advisory"
+type = "forbidden"
+source_modules = ["alphaswarm.export"]
+forbidden_modules = ["alphaswarm.advisory", "alphaswarm.holdings"]
