@@ -194,8 +194,23 @@ npm --prefix frontend run dev                           # http://localhost:5173
 - With the backend stopped, actions on :5173 show "Cannot reach the backend. Is it running
   on port 8000?": the dev proxy answers 502 `backend_unreachable` and logs `http proxy error`.
 - Fast smoke runs: `ALPHASWARM_NUM_ROUNDS=2`. The UI follows the frame's `num_rounds`.
+- Private-headline experiment: `ALPHASWARM_SIMULATION__PRIVATE_HEADLINES=true` gives each agent a seeded half of each entity's headlines (prices shared). Experiment runs only; never the default (`docs/DECISIONS.md#p40-d-07`).
 - Headless run with live progress output: `uv run python -m alphaswarm run "<rumor>"`.
   It honors `.secrets/inference.json` since 342b285.
+
+### Methodology experiments (Phase 7)
+Tagged two-round runs on the benchmark seeds, then read-only analysis:
+
+```bash
+ALPHASWARM_NUM_ROUNDS=2 ALPHASWARM_SIMULATION__SIM_SEED=101 \
+ALPHASWARM_SIMULATION__EXPERIMENT_TAG=<tag> uv run alphaswarm run "<rumor>"
+uv run python scripts/compare_cycles.py --methodology            # final-round estimators per cycle
+uv run python scripts/persona_agreement.py --tag <a> --tag <b>   # prompt-twin agreement per arm
+uv run python scripts/context_probe.py --show-block              # market block per benchmark seed
+```
+
+Persona traits: `ALPHASWARM_SIMULATION__PERSONA_TRAITS=false` reproduces the trait-less prompts.
+Results go to `docs/experiments.md` with cycle ids and the git SHA.
 
 ### Cloud mode quick reference
 - Provider config lives in `.secrets/inference.json` (gitignored). Edit it through

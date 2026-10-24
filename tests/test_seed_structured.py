@@ -10,13 +10,11 @@ from pydantic import ValidationError
 
 from alphaswarm.inference.structured import chat_structured
 from alphaswarm.inference.types import InferenceResult, ProviderRole
-from alphaswarm.personas import BRACKET_MODIFIERS
 from alphaswarm.seed import (
     ModifiersLLMOutput,
     SeedLLMOutput,
     generate_modifiers,
     inject_seed,
-    static_modifiers,
 )
 from alphaswarm.types import BracketType, EntityType, SeedEntity, SeedEvent
 from tests.inference.fakes import FakeInferenceProvider
@@ -238,21 +236,18 @@ class TestModifiers:
         result = await generate_modifiers(_seed_event(), _orchestrator(f"```json\n{_full_modifiers()}\n```"))
         assert result.parse_tier == 2
 
-    async def test_partial_reply_falls_back_per_bracket(self) -> None:
+    async def test_partial_reply_applies_only_generated_brackets(self) -> None:
         partial = {b.value: f"custom {b.value}" for b in list(BracketType)[:7]}
         result = await generate_modifiers(_seed_event(), _orchestrator(json.dumps(partial)))
         assert result.parse_tier == 1
-        for bracket in list(BracketType)[:7]:
-            assert result.modifiers[bracket] == f"custom {bracket.value}"
-        for bracket in list(BracketType)[7:]:
-            assert result.modifiers[bracket] == static_modifiers()[bracket]
+        assert result.modifiers == {b: f"custom {b.value}" for b in list(BracketType)[:7]}
 
-    async def test_keys_are_case_insensitive_and_non_strings_fall_back(self) -> None:
+    async def test_keys_are_case_insensitive_and_non_strings_are_missing(self) -> None:
         upper: dict[str, object] = {b.value.upper(): f"upper {b.value}" for b in BracketType}
         upper["MACRO"] = 7
         result = await generate_modifiers(_seed_event(), _orchestrator(json.dumps(upper)))
         assert result.modifiers[BracketType.QUANTS] == "upper quants"
-        assert result.modifiers[BracketType.MACRO] == static_modifiers()[BracketType.MACRO]
+        assert BracketType.MACRO not in result.modifiers
 
     async def test_long_modifiers_are_truncated(self) -> None:
         long_text = "word " * 80
@@ -260,12 +255,8 @@ class TestModifiers:
         result = await generate_modifiers(_seed_event(), _orchestrator(reply))
         assert all(len(text) <= 150 for text in result.modifiers.values())
 
-    async def test_two_invalid_replies_use_static_modifiers(self) -> None:
+    async def test_two_invalid_replies_give_no_modifiers(self) -> None:
         provider = _orchestrator("not json", "still not json")
         result = await generate_modifiers(_seed_event(), provider)
-        assert result.parse_tier == 3
-        assert result.modifiers == static_modifiers()
+        assert (result.parse_tier, result.modifiers) == (3, {})
         assert len(provider.calls) == 2
-
-    def test_static_modifiers_are_the_first_of_each_bracket(self) -> None:
-        assert static_modifiers()[BracketType.SHORTS] == BRACKET_MODIFIERS[BracketType.SHORTS][0]

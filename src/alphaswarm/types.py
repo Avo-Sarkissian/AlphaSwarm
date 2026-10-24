@@ -239,12 +239,16 @@ class ParsedSeedResult:
 
 @dataclasses.dataclass(frozen=True)
 class ParsedModifiersResult:
-    """Result of modifier generation with parse-tier observability (D-09).
+    """Result of modifier generation with parse-tier observability (docs/DECISIONS.md#p13-d-09).
+
+    ``modifiers`` holds only the brackets the orchestrator actually filled; a missing
+    bracket gets no focus line (docs/DECISIONS.md#p13-d-08).
 
     parse_tier values:
       1 = Direct JSON parse succeeded
-      2 = Code-fence strip / regex extraction succeeded
-      3 = All tiers failed, fallback to static BRACKET_MODIFIERS
+      2 = Code-fence strip / candidate extraction succeeded
+      3 = No usable reply: ``modifiers`` is empty and personas are not regenerated
+          with modifiers (docs/DECISIONS.md#p13-d-07)
     """
 
     modifiers: dict[BracketType, str]

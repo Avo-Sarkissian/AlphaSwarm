@@ -37,3 +37,24 @@ def test_rendering_follows_the_registry() -> None:
     assert "- quants: Quantitative analysts\n- shorts: Forensic sellers\n" in prompt
     assert 'Example: {"quants": "...", "shorts": "..."}' in prompt
     assert "All 2 keys must be present." in prompt
+
+
+def test_modifier_prompt_forbids_a_directional_view() -> None:
+    from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT
+
+    assert "Describe role and expertise only; no directional view." in MODIFIER_GENERATION_PROMPT
+
+
+def test_modifier_user_message_has_no_sentiment_or_relevance() -> None:
+    from alphaswarm.prompts.modifiers import build_modifier_user_message
+    from alphaswarm.types import EntityType, SeedEntity, SeedEvent
+
+    event = SeedEvent(
+        raw_rumor="ZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.",
+        entities=[SeedEntity(name="ZZZT Holdings", type=EntityType.COMPANY, relevance=0.95, sentiment=0.8)],
+        overall_sentiment=0.6,
+    )
+    message = build_modifier_user_message(event)
+    assert "- ZZZT Holdings (type: company)" in message
+    assert "sentiment" not in message and "relevance" not in message
+    assert "+0.80" not in message and "0.95" not in message

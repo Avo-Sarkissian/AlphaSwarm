@@ -10,18 +10,21 @@ Never imports alphaswarm.advisory (tests/invariants/test_swarm_ticker_resolution
 from __future__ import annotations
 
 import asyncio
+import math
+import random
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
+from hashlib import blake2b
+from typing import TYPE_CHECKING, Final
 
 import structlog
 
 from alphaswarm.context_formatter import format_market_context
-from alphaswarm.ingestion.types import ContextPacket
+from alphaswarm.ingestion.types import ContextPacket, NewsSlice
 
 if TYPE_CHECKING:
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
-    from alphaswarm.types import ParsedSeedResult, SeedEntity
+    from alphaswarm.types import AgentPersona, ParsedSeedResult, SeedEntity
 
 # Same component as the block's previous home in simulation.py, so log queries keep working.
 logger = structlog.get_logger(component="simulation")
@@ -79,3 +82,43 @@ async def assemble_market_context(
     """The block agents see (fenced by the worker), or None when nothing renderable came back."""
     packet = await build_context_packet(cycle_id, parsed_result, market, news)
     return format_market_context(packet) if packet is not None else None
+
+
+# Private-headline experiment (simulation.private_headlines): never the default; one
+# shared block stays the product behaviour (docs/DECISIONS.md#p40-d-07).
+PRIVATE_HEADLINE_FRACTION: Final = 0.5
+
+
+def _private_rng(run_seed: str, agent_id: str) -> random.Random:
+    digest = blake2b(f"{run_seed}:headlines:{agent_id}".encode(), digest_size=8).digest()
+    return random.Random(int.from_bytes(digest, "big"))
+
+
+def _headline_subset(news: NewsSlice, rng: random.Random, keep_fraction: float) -> NewsSlice:
+    if news.staleness == "fetch_failed" or not news.headlines:
+        return news
+    keep = max(1, math.ceil(len(news.headlines) * keep_fraction))
+    picked = sorted(rng.sample(range(len(news.headlines)), keep))
+    return news.model_copy(update={"headlines": tuple(news.headlines[i] for i in picked)})
+
+
+def private_market_contexts(
+    packet: ContextPacket,
+    personas: Sequence[AgentPersona],
+    *,
+    run_seed: str,
+    keep_fraction: float = PRIVATE_HEADLINE_FRACTION,
+) -> tuple[str | None, ...]:
+    """One block per agent (persona order): every price, a seeded private headline subset.
+
+    Draws use blake2b("{run_seed}:headlines:{agent_id}"), so a run is reproducible
+    from its seed. Experiment flag only (docs/DECISIONS.md#p40-d-07).
+    """
+    if not 0.0 < keep_fraction <= 1.0:
+        raise ValueError(f"keep_fraction must be in (0, 1], got {keep_fraction}")
+    blocks: list[str | None] = []
+    for persona in personas:
+        rng = _private_rng(run_seed, persona.id)
+        news = tuple(_headline_subset(s, rng, keep_fraction) for s in packet.news)
+        blocks.append(format_market_context(packet.model_copy(update={"news": news})))
+    return tuple(blocks)

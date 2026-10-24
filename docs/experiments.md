@@ -151,3 +151,11 @@ Protocol: `uv run python scripts/context_probe.py --show-block` on the reference
 Verify: the market block is non-empty for at least 3 of the 4 seeds. Expected: the three seeds that name public companies resolve tickers and show price lines; a private company stays unresolved; the central-bank seed has no company ticker but gets a news-only block.
 
 No runs recorded: the probe needs the orchestrator and the network and runs on the reference machine.
+
+## P7.6 — persona heterogeneity (Round 1 agreement among prompt twins)
+
+Arms: `p76-baseline` (`ALPHASWARM_SIMULATION__PERSONA_TRAITS=false`) vs `p76-traits` (`=true`, the default); the four `scripts/benchmark_seeds.json` seeds with `sim_seed` 101-104, `ALPHASWARM_NUM_ROUNDS=2`, one tagged cycle per seed and arm. Twin groups: 43 (agents that share a bracket and a round-robin modifier, `personas.prompt_twin_groups` over the trait-less personas). Analysis (read-only): `uv run python scripts/persona_agreement.py --tag p76-baseline --tag p76-traits` prints, per arm, twin agreement, same-bracket cross-modifier agreement, within-bracket entropy and between-bracket total-variation distance with bootstrap intervals over cycles, then the paired change per field. Record the table and the paired lines here with the git sha and the cycle ids.
+
+Verify: Round 1 twin agreement drops versus the baseline (mean drop > 0 and lower in at least 3 of the 4 seeds). If it does not, `persona_traits` becomes opt-in (default off) and BACKLOG 4.2 stays open with the numbers.
+
+No runs recorded: the measurement needs real inference on the reference machine.

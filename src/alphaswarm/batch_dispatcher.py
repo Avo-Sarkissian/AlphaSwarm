@@ -195,6 +195,7 @@ async def dispatch_wave(
     telemetry: RoundTelemetry | None = None,
     call_seeds: Sequence[int | None] | None = None,
     user_messages: Sequence[str] | None = None,
+    market_contexts: Sequence[str | None] | None = None,
 ) -> list[AgentDecision]:
     """Dispatch a wave of agent inferences using asyncio.TaskGroup.
 
@@ -226,6 +227,8 @@ async def dispatch_wave(
             docs/DECISIONS.md#adr-run-manifest).
         user_messages: Optional per-agent user messages that replace
             ``user_message`` (shock treatment split; same length as personas).
+        market_contexts: Optional per-agent market blocks that replace
+            ``market_context`` (private-headline experiment; same length as personas).
         telemetry: Per-round telemetry every completed call is recorded in
             (docs/DECISIONS.md#adr-inference-telemetry).
 
@@ -234,8 +237,8 @@ async def dispatch_wave(
         signal=PARSE_ERROR.
 
     Raises:
-        ValueError: If peer_contexts, own_priors, call_seeds or user_messages length
-            does not match personas length.
+        ValueError: If peer_contexts, own_priors, call_seeds, user_messages or
+            market_contexts length does not match personas length.
         GovernorCrisisError: If any agent hits a governor crisis.
         BudgetExceededError: If the spend cap is exceeded; halts the wave so
             completed rounds remain persisted and no further spend occurs.
@@ -250,6 +253,7 @@ async def dispatch_wave(
         ("own_priors", own_priors),
         ("call_seeds", call_seeds),
         ("user_messages", user_messages),
+        ("market_contexts", market_contexts),
     ):
         if values is not None and len(values) != len(personas):
             raise ValueError(f"{name} length {len(values)} != personas length {len(personas)}")
@@ -274,7 +278,7 @@ async def dispatch_wave(
                         provider,
                         user_messages[i] if user_messages is not None else user_message,
                         peer_contexts[i] if peer_contexts is not None else peer_context,
-                        market_context,
+                        market_contexts[i] if market_contexts is not None else market_context,
                         jitter_min,
                         jitter_max,
                         state_store=state_store,

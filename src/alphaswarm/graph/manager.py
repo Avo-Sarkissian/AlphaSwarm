@@ -132,19 +132,16 @@ class GraphStateManager:
             raise _map_graph_error(exc, op="verify_connectivity", write=False) from exc
 
     async def close(self) -> None:
-        """Close the Neo4j driver connection."""
         await self._driver.close()
         log.info("driver_closed")
 
     async def ensure_schema(self) -> None:
         """Apply idempotent schema constraints and indexes, then seed agents.
 
-        DDL runs as auto-commit statements on one session, the only one opened
-        outside _read/_write (docs/DECISIONS.md#p4-d-05). It then back-fills
-        ``Cycle.status`` and seeds all agent nodes. It removes no data: the
-        retired Agent-level ``decision_narrative`` stays until
-        ``remove_legacy_properties()`` runs, and duplicate decision ids keep the
-        plain index in place of the uniqueness constraint; they are never deleted.
+        DDL runs as auto-commit statements on one session, the only one opened outside _read/_write
+        (docs/DECISIONS.md#p4-d-05). It then back-fills ``Cycle.status`` and seeds all agent nodes. It removes
+        no data: the retired Agent-level ``decision_narrative`` stays until ``remove_legacy_properties()`` runs,
+        and duplicate decision ids keep the plain index in place of the uniqueness constraint; they are never deleted.
         """
         statements = await schema_writes.resolve_schema_statements(self._read)
         try:
@@ -287,6 +284,9 @@ class GraphStateManager:
 
     async def read_agent_interview_rows(self, agent_id: str, cycle_id: str) -> AgentInterviewRows:
         return await replay_interview.read_agent_interview_rows(self._read, agent_id, cycle_id)
+
+    async def read_persona_trait_seed(self, cycle_id: str) -> int | None:
+        return await replay_interview.read_persona_trait_seed(self._read, cycle_id)
 
     async def read_agent_decisions(self, cycle_id: str, agent_id: str) -> list[AgentDecisionRow]:
         return await replay_interview.read_agent_decisions(self._read, cycle_id, agent_id)

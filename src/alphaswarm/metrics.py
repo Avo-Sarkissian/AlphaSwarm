@@ -1,8 +1,9 @@
 """Pure measurement functions for cycles and experiments (docs/DECISIONS.md#adr-run-manifest).
 
 Citation validity, exposure-normalised influence, control and treated flips,
-the Round 1 retest noise floor, the per-round experiment metric keys and
-percentile bootstrap intervals. No I/O: the round runner and the operator
+the Round 1 retest noise floor, the per-round experiment metric keys,
+percentile bootstrap intervals and the persona-heterogeneity measures
+(prompt-twin agreement, within- and between-bracket spread). No I/O: the round runner and the operator
 scripts share these functions.
 """
 
@@ -11,10 +12,17 @@ from __future__ import annotations
 import random
 import statistics
 from collections import Counter
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
+from itertools import combinations
 from typing import Final, NamedTuple
 
-from alphaswarm.consensus import consensus_rng, dispersion, estimate_consensus, votes_from_decisions
+from alphaswarm.consensus import (
+    consensus_rng,
+    dispersion,
+    estimate_consensus,
+    normalized_entropy,
+    votes_from_decisions,
+)
 from alphaswarm.types import AgentDecision, AgentPersona, SignalType
 
 Pairs = Sequence[tuple[str, AgentDecision]]
@@ -441,3 +449,78 @@ def methodology_metrics(
                     out[f"r{n}_{key}"] = round(value, _DECIMALS)
         prev = current
     return out
+
+
+# ---------------------------------------------------------------------------
+# Persona heterogeneity (docs/DECISIONS.md#adr-persona-traits)
+# ---------------------------------------------------------------------------
+
+
+def _decided_signals(decisions: Sequence[tuple[str, AgentDecision]]) -> dict[str, SignalType]:
+    return {a: d.signal for a, d in decisions if d.signal is not SignalType.PARSE_ERROR}
+
+
+def _agreement(pairs: Iterable[tuple[str, str]], signal: Mapping[str, SignalType]) -> float | None:
+    same = total = 0
+    for a, b in pairs:
+        total += 1
+        same += signal[a] is signal[b]
+    return same / total if total else None
+
+
+def pairwise_agreement(decisions: Sequence[tuple[str, AgentDecision]], groups: Sequence[Sequence[str]]) -> float | None:
+    """Share of agent pairs inside each group that chose the same decided signal.
+
+    PARSE_ERROR and agents without a decision are skipped; None without a pair.
+    """
+    signal = _decided_signals(decisions)
+    pairs = (pair for group in groups for pair in combinations([a for a in group if a in signal], 2))
+    return _agreement(pairs, signal)
+
+
+def cross_group_agreement(
+    decisions: Sequence[tuple[str, AgentDecision]],
+    groups: Sequence[Sequence[str]],
+    personas: Sequence[AgentPersona],
+) -> float | None:
+    """Agreement among same-bracket pairs that sit in different groups (the twin baseline)."""
+    signal = _decided_signals(decisions)
+    group_of = {agent: index for index, group in enumerate(groups) for agent in group}
+    by_bracket: dict[str, list[str]] = {}
+    for persona in personas:
+        if persona.id in signal:
+            by_bracket.setdefault(persona.bracket.value, []).append(persona.id)
+    pairs = (
+        (a, b)
+        for members in by_bracket.values()
+        for a, b in combinations(members, 2)
+        if group_of.get(a) is None or group_of.get(a) != group_of.get(b)
+    )
+    return _agreement(pairs, signal)
+
+
+def _bracket_counts(
+    decisions: Sequence[tuple[str, AgentDecision]], personas: Sequence[AgentPersona]
+) -> list[list[int]]:
+    """Decided-signal counts (DECIDED_SIGNALS order) per bracket with a decided agent."""
+    rows = [[counts[s.value] for s in DECIDED_SIGNALS] for counts in bracket_signal_table(decisions, personas).values()]
+    return [row for row in rows if sum(row)]
+
+
+def within_bracket_entropy(
+    decisions: Sequence[tuple[str, AgentDecision]], personas: Sequence[AgentPersona]
+) -> float | None:
+    """Mean normalized signal entropy inside each bracket that has a decided agent."""
+    rows = _bracket_counts(decisions, personas)
+    return sum(normalized_entropy(row) for row in rows) / len(rows) if rows else None
+
+
+def bracket_divergence(
+    decisions: Sequence[tuple[str, AgentDecision]], personas: Sequence[AgentPersona]
+) -> float | None:
+    """Mean pairwise total-variation distance between brackets' decided-signal shares."""
+    shares = [[count / sum(row) for count in row] for row in _bracket_counts(decisions, personas)]
+    pairs = list(combinations(shares, 2))
+    if not pairs:
+        return None
+    return sum(0.5 * sum(abs(x - y) for x, y in zip(p, q, strict=True)) for p, q in pairs) / len(pairs)

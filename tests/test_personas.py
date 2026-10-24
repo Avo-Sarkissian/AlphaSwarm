@@ -8,6 +8,12 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
+from alphaswarm.personas import (
+    BRACKET_MODIFIERS,
+    generate_personas,
+    persona_body,
+    prompt_twin_groups,
+)
 from alphaswarm.types import BracketType
 
 if TYPE_CHECKING:
@@ -72,10 +78,25 @@ def test_persona_inherits_bracket_values(
 # --- Phase 5: Enriched persona prompt tests ---
 
 
-def test_persona_unique_system_prompts(all_personas: list[AgentPersona]) -> None:
-    """All 100 personas have unique system_prompt strings."""
-    prompts = [p.system_prompt for p in all_personas]
-    assert len(set(prompts)) == 100, f"Expected 100 unique prompts, got {len(set(prompts))}"
+def test_persona_body_strips_only_the_header(all_personas: list[AgentPersona]) -> None:
+    first = all_personas[0]
+    body = persona_body(first.system_prompt)
+    assert f"[{first.name} |" not in body
+    assert len(first.system_prompt) - len(body) <= len(first.name) * 2 + 20
+
+
+def test_static_modifiers_leave_prompt_twins(
+    all_brackets: list[BracketConfig], all_personas: list[AgentPersona]
+) -> None:
+    """Without traits, agents sharing a round-robin modifier have identical bodies."""
+    expected = sum(min(b.count, len(BRACKET_MODIFIERS[b.bracket_type])) for b in all_brackets)
+    assert len(prompt_twin_groups(all_personas)) == expected
+
+
+def test_every_persona_body_is_unique(all_brackets: list[BracketConfig]) -> None:
+    personas = generate_personas(all_brackets, seed=101)
+    bodies = [persona_body(p.system_prompt) for p in personas]
+    assert len(set(bodies)) == len(personas)
 
 
 def test_persona_contains_json_instructions(all_personas: list[AgentPersona]) -> None:

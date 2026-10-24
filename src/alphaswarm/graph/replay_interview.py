@@ -516,6 +516,35 @@ async def _read_cycle_entities_tx(
     return [EntityRef(str(r["name"]), str(r["type"])) async for r in result]
 
 
+async def read_persona_trait_seed(read: TxRunner, cycle_id: str) -> int | None:
+    """The seed the cycle's persona traits were drawn with, or None
+    (docs/DECISIONS.md#adr-persona-traits).
+
+    None for cycles whose run manifest had traits off, cycles without a manifest
+    and unknown cycles: their interviews use the trait-less persona.
+    """
+    row = await read(_read_trait_seed_tx, cycle_id, op="read_persona_trait_seed")
+    if row is None or row["sim_seed"] is None or row["manifest"] is None:
+        return None
+    try:
+        simulation = json.loads(str(row["manifest"])).get("simulation", {})
+    except (json.JSONDecodeError, AttributeError):
+        log.warning("run_manifest_unreadable", cycle_id=cycle_id)
+        return None
+    if isinstance(simulation, dict) and simulation.get("persona_traits") is True:
+        return int(row["sim_seed"])
+    return None
+
+
+async def _read_trait_seed_tx(tx: AsyncManagedTransaction, cycle_id: str) -> dict[str, Any] | None:
+    result = await tx.run(
+        "MATCH (c:Cycle {cycle_id: $cycle_id}) RETURN c.sim_seed AS sim_seed, c.run_manifest_json AS manifest",
+        cycle_id=cycle_id,
+    )
+    record = await result.single()
+    return dict(record) if record is not None else None
+
+
 async def read_agent_interview_rows(read: TxRunner, agent_id: str, cycle_id: str) -> AgentInterviewRows:
     """One agent's identity, the cycle's stored modifiers, and its decisions and
     narrative in that cycle (docs/DECISIONS.md#p14-d-06).

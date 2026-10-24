@@ -27,7 +27,7 @@ from alphaswarm.manifest import (
     provenance_from_providers,
     sha256_text,
 )
-from alphaswarm.market_context import assemble_market_context
+from alphaswarm.market_context import build_context_packet, private_market_contexts
 from alphaswarm.metrics import RoundInput, methodology_metrics
 from alphaswarm.personas import compute_prompt_template_hash, generate_personas
 from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS, focal_instrument
@@ -48,6 +48,7 @@ if TYPE_CHECKING:
     from alphaswarm.errors import RunErrorCode
     from alphaswarm.graph import CycleStatus, GraphStateManager
     from alphaswarm.inference.provider import InferenceProvider
+    from alphaswarm.ingestion.types import ContextPacket
     from alphaswarm.settings import SimulationSettings
     from alphaswarm.state import BracketSummary, StateSink
     from alphaswarm.types import (
@@ -237,15 +238,18 @@ class SimulationResult:
         return self._summaries(3)
 
 
-async def _round_1_market_context(deps: SimulationDeps, cycle_id: str, parsed_result: ParsedSeedResult) -> str | None:
-    """The Round 1 block: the recorded fixture when one is set, else the live fetch.
+async def _round_1_market_context(
+    deps: SimulationDeps, cycle_id: str, parsed_result: ParsedSeedResult
+) -> tuple[ContextPacket | None, str | None]:
+    """The Round 1 packet and its block: the recorded fixture when one is set, else the live fetch.
 
     A point-in-time run replaces the live market and news fetch with
     ``deps.context_fixture`` (docs/DECISIONS.md#adr-eval-harness).
     """
     fixture = deps.context_fixture
     if fixture is None:
-        return await assemble_market_context(cycle_id, parsed_result, deps.market, deps.news)
+        packet = await build_context_packet(cycle_id, parsed_result, deps.market, deps.news)
+        return packet, format_market_context(packet) if packet is not None else None
     block = format_market_context(fixture)
     logger.info(
         "context_fixture_used",
@@ -254,7 +258,17 @@ async def _round_1_market_context(deps: SimulationDeps, cycle_id: str, parsed_re
         entity_count=len(fixture.entities),
         rendered=block is not None,
     )
-    return block
+    return fixture, block
+
+
+def _private_contexts(
+    packet: ContextPacket | None, roster: Sequence[AgentPersona], sim_seed: int, sim: SimulationSettings
+) -> tuple[str | None, ...] | None:
+    """Per-agent blocks of the private-headline experiment, or None when it is off
+    (simulation.private_headlines, never the default; docs/DECISIONS.md#p40-d-07)."""
+    if packet is None or not sim.private_headlines:
+        return None
+    return private_market_contexts(packet, roster, run_seed=str(sim_seed))
 
 
 async def _enter_phase(state: StateSink | None, phase: SimulationPhase, *, cycle_id: str | None = None) -> None:
@@ -315,6 +329,7 @@ async def _record_cycle_metrics(
     total_seconds: float,
     git_sha: str | None,
     git_dirty: bool | None,
+    modifier_parse_tier: int | None = None,
     extra: Mapping[str, float] | None = None,
 ) -> None:
     """Write the cycle metrics; a failed write is logged and never fails the run."""
@@ -324,7 +339,11 @@ async def _record_cycle_metrics(
         agent_count=len(roster),
         total_seconds=total_seconds,
     )
-    metrics.update(_derived_cycle_metrics(outcomes, roster, run_seed=run_seed, cycle_id=cycle_id))
+    metrics.update(
+        _derived_cycle_metrics(
+            outcomes, roster, run_seed=run_seed, cycle_id=cycle_id, modifier_parse_tier=modifier_parse_tier
+        )
+    )
     metrics.update(
         _peer_and_provenance_metrics(
             deps.settings.simulation,
@@ -348,9 +367,11 @@ def _derived_cycle_metrics(
     *,
     run_seed: str,
     cycle_id: str,
+    modifier_parse_tier: int | None = None,
 ) -> dict[str, float | int | str | bool]:
     """Consensus, dispersion and cross-round estimators for the cycle metrics
-    (metrics_version 3, docs/DECISIONS.md#adr-consensus-estimators).
+    (metrics_version 3, docs/DECISIONS.md#adr-consensus-estimators), plus the
+    modifier parse tier when modifiers were generated (docs/DECISIONS.md#p13-d-09).
 
     Derived numbers only: a bug here is logged with its traceback and the run
     still completes with its other metrics (docs/DECISIONS.md#adr-cycle-metrics).
@@ -366,7 +387,36 @@ def _derived_cycle_metrics(
         )
     except Exception:
         logger.warning("methodology_metrics_failed", cycle_id=cycle_id, exc_info=True)
+    if modifier_parse_tier is not None:
+        metrics["modifier_parse_tier"] = modifier_parse_tier
     return metrics
+
+
+def _run_roster(
+    personas: Sequence[AgentPersona],
+    brackets: Sequence[BracketConfig],
+    modifier_result: ParsedModifiersResult | None,
+    *,
+    trait_seed: int | None,
+) -> list[AgentPersona]:
+    """The personas this run's rounds use: the cycle's generated modifiers and, when
+    persona traits are on, seeded per-agent traits (docs/DECISIONS.md#adr-persona-traits)."""
+    # A tier-3 result carries no modifiers: treated like no modifier generation
+    # (docs/DECISIONS.md#p13-d-07).
+    usable = modifier_result if modifier_result is not None and modifier_result.parse_tier != 3 else None
+    if usable is None and trait_seed is None:
+        return list(personas)
+    roster = generate_personas(
+        list(brackets),
+        modifiers=usable.modifiers if usable is not None else None,
+        seed=trait_seed,
+    )
+    logger.info(
+        "personas_regenerated",
+        parse_tier=modifier_result.parse_tier if modifier_result is not None else None,
+        persona_traits=trait_seed is not None,
+    )
+    return roster
 
 
 def _collect_prompt_hashes(brackets: Sequence[BracketConfig]) -> dict[str, str]:
@@ -459,14 +509,12 @@ async def _run_simulation(
     structlog.contextvars.bind_contextvars(cycle_id=cycle_id)
     if state is not None:
         await state.set_cycle(cycle_id)
-    roster = list(personas)
-    if modifier_result is not None:
-        roster = generate_personas(list(brackets), modifiers=modifier_result.modifiers)
-        logger.info("personas_regenerated_with_modifiers", parse_tier=modifier_result.parse_tier)
-    market_context = await _round_1_market_context(deps, cycle_id, parsed_result)
+    packet, market_context = await _round_1_market_context(deps, cycle_id, parsed_result)
     sim_seed = await _record_run_manifest(
         deps, cycle_id, brackets, modifier_result, market_context, git=(git_sha, git_dirty)
     )
+    trait_seed = sim_seed if settings.simulation.persona_traits else None
+    roster = _run_roster(personas, brackets, modifier_result, trait_seed=trait_seed)
     ctx = RoundContext(
         deps=deps,
         cycle_id=cycle_id,
@@ -479,6 +527,7 @@ async def _run_simulation(
         on_round_complete=on_round_complete,
         sim_seed=sim_seed,
         focal=focal_instrument(parsed_result.seed_event.entities),
+        private_market_contexts=_private_contexts(packet, roster, sim_seed, settings.simulation),
     )
     outcomes: list[RoundOutcome] = []
     shocks: list[str] = []
@@ -514,6 +563,7 @@ async def _run_simulation(
         total_seconds=time.monotonic() - sim_start,
         git_sha=git_sha,
         git_dirty=git_dirty,
+        modifier_parse_tier=modifier_result.parse_tier if modifier_result is not None else None,
         extra={"seed_seconds": round(seed_seconds, 1), **governor_metrics(deps.controller)},
     )
     # Every round is persisted and metrics were attempted (docs/DECISIONS.md#adr-cycle-metrics).

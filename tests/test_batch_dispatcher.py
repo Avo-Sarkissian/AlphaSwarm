@@ -1388,7 +1388,7 @@ async def test_ft_dispatch_wave_rejects_misaligned_own_priors(governor: Resource
 
 def _recording_provider(seen: dict[str, tuple[str, int | None]]) -> FakeInferenceProvider:
     def respond(*, messages: list[dict[str, str]], seed: int | None = None, **_: object) -> InferenceResult:
-        persona = next(m["content"] for m in messages if m["role"] == "system")
+        persona = next(m["content"] for m in messages if m["content"].startswith("persona "))
         seen[persona.removeprefix("persona ")] = (messages[-1]["content"], seed)
         return InferenceResult(content=_VALID_BUY_JSON, model="fake-model")
 
@@ -1416,6 +1416,23 @@ async def test_dispatch_wave_routes_per_agent_inputs(governor: ResourceGovernor)
     }
 
 
+async def test_dispatch_wave_routes_per_agent_market_contexts(governor: ResourceGovernor) -> None:
+    seen: dict[str, tuple[str, int | None]] = {}
+    with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
+        await dispatch_wave(
+            personas=_ft_personas(["quants_01", "quants_02"]),
+            governor=governor,
+            provider=_recording_provider(seen),
+            user_message="shared rumor",
+            settings=GovernorSettings(baseline_parallel=16),
+            market_context="shared block",
+            market_contexts=["private block A", None],
+        )
+
+    assert "private block A" in seen["quants_01"][0] and "shared block" not in seen["quants_01"][0]
+    assert seen["quants_02"][0] == "shared rumor"
+
+
 async def test_dispatch_wave_defaults_keep_the_scalar_message(governor: ResourceGovernor) -> None:
     seen: dict[str, tuple[str, int | None]] = {}
     with patch("alphaswarm.batch_dispatcher.asyncio.sleep", new_callable=AsyncMock):
@@ -1430,9 +1447,14 @@ async def test_dispatch_wave_defaults_keep_the_scalar_message(governor: Resource
     assert seen == {"quants_01": ("shared rumor", None), "quants_02": ("shared rumor", None)}
 
 
-@pytest.mark.parametrize("name", ["own_priors", "call_seeds", "user_messages"])
+@pytest.mark.parametrize("name", ["own_priors", "call_seeds", "user_messages", "market_contexts"])
 async def test_dispatch_wave_rejects_misaligned_per_agent_inputs(governor: ResourceGovernor, name: str) -> None:
-    values: dict[str, list[object]] = {"own_priors": [None], "call_seeds": [1], "user_messages": ["m"]}
+    values: dict[str, list[object]] = {
+        "own_priors": [None],
+        "call_seeds": [1],
+        "user_messages": ["m"],
+        "market_contexts": ["block"],
+    }
     with pytest.raises(ValueError, match=f"{name} length 1 != personas length 2"):
         await dispatch_wave(
             personas=_ft_personas(["quants_01", "quants_02"]),

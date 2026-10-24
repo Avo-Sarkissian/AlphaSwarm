@@ -23,6 +23,7 @@
   "read_influence_leaders": "(self, cycle_id: 'str', limit: 'int' = 10) -> 'list[InfluenceLeaderRow]'",
   "read_key_dissenters": "(self, cycle_id: 'str') -> 'list[KeyDissenterRow]'",
   "read_latest_cycle_id": "(self, *, statuses: 'Collection[CycleStatus]' = ('complete',)) -> 'str | None'",
+  "read_persona_trait_seed": "(self, cycle_id: 'str') -> 'int | None'",
   "read_rationale_entries_for_round": "(self, cycle_id: 'str', round_num: 'int', limit: 'int' = 10) -> 'list[RationaleRoundRow]'",
   "read_round_timeline": "(self, cycle_id: 'str') -> 'list[RoundTimelineRow]'",
   "read_shock_event": "(self, cycle_id: 'str') -> 'ShockEventRow | None'",

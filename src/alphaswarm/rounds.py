@@ -334,6 +334,9 @@ class RoundContext:
     on_round_complete: OnRoundComplete = None
     sim_seed: int | None = None  # effective run seed; None sends no per-call seeds
     focal: FocalInstrument | None = None  # docs/DECISIONS.md#adr-decision-prompt
+    # Per-agent blocks of the private-headline experiment, persona order
+    # (simulation.private_headlines; docs/DECISIONS.md#p40-d-07).
+    private_market_contexts: tuple[str | None, ...] | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -347,6 +350,7 @@ class RoundInputs:
     call_seeds: tuple[int, ...] | None
     user_messages: tuple[str, ...] | None = None  # per agent, only for a shock split round
     shock_treated_ids: frozenset[str] | None = None
+    market_contexts: tuple[str | None, ...] | None = None  # per agent, private-headline experiment
 
 
 def worker_configs_for(personas: Sequence[AgentPersona], sim: SimulationSettings) -> list[WorkerPersonaConfig]:
@@ -386,14 +390,16 @@ def prepare_round_inputs(
         shock_treated = select_shock_treated_ids(ctx.personas, run_seed=ctx.run_seed)
         plain = render_decision_task(_with_shocks(ctx.rumor, ()), ctx.focal)
         user_messages = tuple(user_message if p.id in shock_treated else plain for p in ctx.personas)
+    in_window = round_num <= sim.market_context_rounds
     return RoundInputs(
         prompt=prompt,
         worker_configs=tuple(worker_configs_for(ctx.personas, sim)),
         user_message=user_message,
-        market_context=ctx.market_context if round_num <= sim.market_context_rounds else None,
+        market_context=ctx.market_context if in_window else None,
         call_seeds=seeds,
         user_messages=user_messages,
         shock_treated_ids=shock_treated,
+        market_contexts=ctx.private_market_contexts if in_window else None,
     )
 
 
@@ -424,6 +430,7 @@ async def retest_round1(
         round_num=1,
         own_priors=list(inputs.prompt.own_prior_lines),
         call_seeds=seeds,
+        market_contexts=list(inputs.market_contexts) if inputs.market_contexts is not None else None,
     )
     second = [(config["agent_id"], decision) for config, decision in zip(inputs.worker_configs, raw, strict=True)]
     metrics = retest_metrics(first, second)
@@ -530,6 +537,7 @@ async def run_round(
         own_priors=list(inputs.prompt.own_prior_lines),
         call_seeds=list(inputs.call_seeds) if inputs.call_seeds is not None else None,
         user_messages=list(inputs.user_messages) if inputs.user_messages is not None else None,
+        market_contexts=list(inputs.market_contexts) if inputs.market_contexts is not None else None,
     )
     if len(raw) != len(worker_configs):
         raise RoundAlignmentError(round_num, expected=len(worker_configs), actual=len(raw))

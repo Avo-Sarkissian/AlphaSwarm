@@ -67,14 +67,16 @@ def _strip_json_instructions(system_prompt: str) -> str:
     return re.sub(r"\n{3,}", "\n\n", text).strip()
 
 
-def interview_persona(rows: AgentInterviewRows, cycle_id: str) -> AgentPersona:
+def interview_persona(rows: AgentInterviewRows, cycle_id: str, *, trait_seed: int | None = None) -> AgentPersona:
     """The agent's persona as it ran in this cycle: config plus the cycle's
-    stored modifiers (docs/DECISIONS.md#p14-d-06).
+    stored modifiers (docs/DECISIONS.md#p14-d-06) and, with trait_seed, the
+    cycle's seeded traits, so the interview speaks as the agent ran
+    (docs/DECISIONS.md#adr-persona-traits).
 
     Raises:
         AgentNotFoundError: the agent is not in the current roster.
     """
-    personas = generate_personas(load_bracket_configs(), modifiers=rows["modifiers"])
+    personas = generate_personas(load_bracket_configs(), modifiers=rows["modifiers"], seed=trait_seed)
     persona = next((p for p in personas if p.id == rows["agent_id"]), None)
     if persona is None:
         raise AgentNotFoundError(rows["agent_id"], cycle_id)
@@ -94,9 +96,10 @@ def build_interview_context(rows: AgentInterviewRows, persona: AgentPersona) -> 
 
 
 async def load_interview_context(graph: GraphStateManager, agent_id: str, cycle_id: str) -> InterviewContext:
-    """Read the agent's rows for the cycle and build its interview context."""
+    """Read the agent's rows and the cycle's trait seed, then build its interview context."""
     rows = await graph.read_agent_interview_rows(agent_id, cycle_id)
-    return build_interview_context(rows, interview_persona(rows, cycle_id))
+    trait_seed = await graph.read_persona_trait_seed(cycle_id)
+    return build_interview_context(rows, interview_persona(rows, cycle_id, trait_seed=trait_seed))
 
 
 # ---------------------------------------------------------------------------

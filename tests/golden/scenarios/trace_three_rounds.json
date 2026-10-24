@@ -99,6 +99,7 @@
         "git_sha",
         "inference_mode",
         "metrics_version",
+        "modifier_parse_tier",
         "num_rounds",
         "orchestrator_model",
         "orchestrator_provider",
@@ -312,18 +313,18 @@
     ],
     [
       {
-        "content": "You are a financial simulation configurator. Given a seed rumor and its extracted entities, generate one short personality modifier string for each of the 10 market participant brackets.\n\nEach modifier should be 8-20 words describing a specialist persona tailored to the specific entities and themes in this rumor. The modifier completes the sentence \"You are a ...\" so it should read naturally after that prefix.\n\nThe 10 brackets (use these exact keys):\n- institutions: Buy-side institutional portfolio managers\n- sell_side: Sell-side equity research analysts\n- event_driven: Merger-arb / special-situations / catalyst funds\n- quants: Quantitative analysts\n- degens: High-risk retail speculators\n- narrators: Financial media and FinTwit commentators\n- algos: Algorithmic trading systems\n- macro: Global macro strategists\n- shorts: Forensic / activist short sellers\n- allocators: Sovereign wealth and family-office allocators\n\nExamples of good modifiers:\n- \"quantitative analyst modeling EV supply chain disruption and margin compression\"\n- \"merger-arb specialist handicapping antitrust approval odds for this deal\"\n- \"tech-desk analyst defending a published price target on the acquirer\"\n\nRespond with a JSON object mapping each bracket key to its modifier string. All 10 keys must be present.\nExample: {\"institutions\": \"...\", \"sell_side\": \"...\", \"event_driven\": \"...\", \"quants\": \"...\", \"degens\": \"...\", \"narrators\": \"...\", \"algos\": \"...\", \"macro\": \"...\", \"shorts\": \"...\", \"allocators\": \"...\"}",
+        "content": "You are a financial simulation configurator. Given a seed rumor and its extracted entities, generate one short personality modifier string for each of the 10 market participant brackets.\n\nEach modifier should be 8-20 words describing a specialist persona tailored to the specific entities and themes in this rumor. The modifier completes the sentence \"You are a ...\" so it should read naturally after that prefix.\n\nDescribe role and expertise only; no directional view. Never say whether the rumor is good or bad news, bullish or bearish, or which way anyone should trade: every agent forms its own view later.\n\nThe 10 brackets (use these exact keys):\n- institutions: Buy-side institutional portfolio managers\n- sell_side: Sell-side equity research analysts\n- event_driven: Merger-arb / special-situations / catalyst funds\n- quants: Quantitative analysts\n- degens: High-risk retail speculators\n- narrators: Financial media and FinTwit commentators\n- algos: Algorithmic trading systems\n- macro: Global macro strategists\n- shorts: Forensic / activist short sellers\n- allocators: Sovereign wealth and family-office allocators\n\nExamples of good modifiers:\n- \"quantitative analyst modeling EV supply chain disruption and margin compression\"\n- \"merger-arb specialist handicapping antitrust approval odds for this deal\"\n- \"tech-desk analyst defending a published price target on the acquirer\"\n\nRespond with a JSON object mapping each bracket key to its modifier string. All 10 keys must be present.\nExample: {\"institutions\": \"...\", \"sell_side\": \"...\", \"event_driven\": \"...\", \"quants\": \"...\", \"degens\": \"...\", \"narrators\": \"...\", \"algos\": \"...\", \"macro\": \"...\", \"shorts\": \"...\", \"allocators\": \"...\"}",
         "role": "system"
       },
       {
-        "content": "SEED RUMOR:\nZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.\n\nEXTRACTED ENTITIES:\n- ZZZT Holdings (type: company, relevance: 0.95, sentiment: +0.60)\n- QQQX Robotics (type: company, relevance: 0.90, sentiment: +0.70)\n- Industrial Automation (type: sector, relevance: 0.60, sentiment: +0.40)",
+        "content": "SEED RUMOR:\nZZZT Holdings is in late-stage talks to acquire QQQX Robotics for $4.2B in cash.\n\nEXTRACTED ENTITIES:\n- ZZZT Holdings (type: company)\n- QQQX Robotics (type: company)\n- Industrial Automation (type: sector)",
         "role": "user"
       }
     ]
   ],
   "prompts": {
     "decision_calls": 300,
-    "digest": "dc2e4a3370372e499d96d7a31b55b48d10c5c7bb501e6bd7e50f088d1f157fd2",
+    "digest": "297abbc5a56ae37aa5a07dc673a1ebf696eb4aba9499d2deaa58acbfb4621abd",
     "samples": {
       "r1:allocators_05": [
         {
@@ -331,7 +332,7 @@
           "role": "system"
         },
         {
-          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\n[Allocators 5 | Allocators bracket]",
+          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\nYour horizon: a decade. Your current position: heavily long the names involved. Your coverage focus: industrials.\n[Allocators 5 | Allocators bracket]",
           "role": "system"
         },
         {
@@ -345,7 +346,7 @@
           "role": "system"
         },
         {
-          "content": "You are a meme-stock maximalist who lives for viral momentum.\n[Degens 1 | Degens bracket]",
+          "content": "You are a meme-stock maximalist who lives for viral momentum.\nYour horizon: until the next headline. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Degens 1 | Degens bracket]",
           "role": "system"
         },
         {
@@ -359,7 +360,7 @@
           "role": "system"
         },
         {
-          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\n[Institutions 1 | Institutions bracket]",
+          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\nYour horizon: several years. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Institutions 1 | Institutions bracket]",
           "role": "system"
         },
         {
@@ -377,7 +378,7 @@
           "role": "system"
         },
         {
-          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\n[Allocators 5 | Allocators bracket]",
+          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\nYour horizon: a decade. Your current position: heavily long the names involved. Your coverage focus: industrials.\n[Allocators 5 | Allocators bracket]",
           "role": "system"
         },
         {
@@ -395,7 +396,7 @@
           "role": "system"
         },
         {
-          "content": "You are a meme-stock maximalist who lives for viral momentum.\n[Degens 1 | Degens bracket]",
+          "content": "You are a meme-stock maximalist who lives for viral momentum.\nYour horizon: until the next headline. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Degens 1 | Degens bracket]",
           "role": "system"
         },
         {
@@ -413,7 +414,7 @@
           "role": "system"
         },
         {
-          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\n[Institutions 1 | Institutions bracket]",
+          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\nYour horizon: several years. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Institutions 1 | Institutions bracket]",
           "role": "system"
         },
         {
@@ -431,7 +432,7 @@
           "role": "system"
         },
         {
-          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\n[Allocators 5 | Allocators bracket]",
+          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\nYour horizon: a decade. Your current position: heavily long the names involved. Your coverage focus: industrials.\n[Allocators 5 | Allocators bracket]",
           "role": "system"
         },
         {
@@ -449,7 +450,7 @@
           "role": "system"
         },
         {
-          "content": "You are a meme-stock maximalist who lives for viral momentum.\n[Degens 1 | Degens bracket]",
+          "content": "You are a meme-stock maximalist who lives for viral momentum.\nYour horizon: until the next headline. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Degens 1 | Degens bracket]",
           "role": "system"
         },
         {
@@ -467,7 +468,7 @@
           "role": "system"
         },
         {
-          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\n[Institutions 1 | Institutions bracket]",
+          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\nYour horizon: several years. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Institutions 1 | Institutions bracket]",
           "role": "system"
         },
         {

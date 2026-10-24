@@ -10,6 +10,7 @@
     "git_sha": "0000000000000000000000000000000000000000",
     "inference_mode": "local",
     "metrics_version": 3,
+    "modifier_parse_tier": 1,
     "num_rounds": 2,
     "orchestrator_model": "scripted-orchestrator",
     "orchestrator_provider": "ollama",
