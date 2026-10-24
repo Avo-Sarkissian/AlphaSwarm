@@ -214,9 +214,9 @@ docker compose up -d        # starts alphaswarm-neo4j on 127.0.0.1 with your pas
 ```
 
 To carry the old graph across, load the dump with the restore command the backup
-script prints, substituting `alphaswarm-neo4j` for the container name
-(`neo4j-admin database load` expects the file named `neo4j.dump` in
-`--from-path`). The server you load into must be able to read that store: the
+script prints, substituting `alphaswarm-neo4j` for the container name (the
+printed sequence already copies the dump to `neo4j.dump`, the only name
+`neo4j-admin database load` reads). The server you load into must be able to read that store: the
 old recipe's floating `neo4j:community` tag is now a 2026.x release while this
 repo pins `neo4j:5.26-community`, so if the load is rejected, pin `image:` in
 `docker-compose.yml` to the version you dumped from. Credentials are not part of

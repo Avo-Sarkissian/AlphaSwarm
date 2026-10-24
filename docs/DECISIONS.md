@@ -52,7 +52,7 @@ Contents
   - D5: local is the default and roles can be mixed.
   - D6: a provider protocol plus adapters, mirroring the Phase 37 provider pattern.
 - **Where:**
-  - `inference/provider.py`, `factory.py`, `rate_limit.py`, `budget.py`.
+  - `inference/provider.py`, `factory.py`, `rate_limit.py`, `budget.py`, `retry.py`. Retries, configuration errors (`ProviderConfigError`), the preflight and pricing follow [adr-cloud-retry](#adr-cloud-retry).
   - Config lives in the gitignored `.secrets/inference.json`. It is edited through
     the Settings UI or `GET/PUT /api/settings`.
   - `AuthError`, `BudgetExceededError` and `ProviderConfigError` are never swallowed ([adr-cloud-retry](#adr-cloud-retry)). One deliberate limit: in an advisory job they are logged with their traceback and recorded for GET, but they do not stop the post-run report ([adr-advisory-pipeline](#adr-advisory-pipeline)).
@@ -319,7 +319,7 @@ Contents
   - `agent_worker(persona, governor, provider)` is an `@asynccontextmanager`. It acquires one governor or rate-limit slot, yields an `AgentWorker`, and releases the slot in `finally` (`worker.py:1-9, 226-232`).
   - No raw client calls outside it, except interviews, which bypass the governor ([p14-d-13](#p14-d-13)).
   - The runtime persona is a lightweight `WorkerPersonaConfig` TypedDict derived from the frozen `AgentPersona`, which stays the source of truth (`types.py:WorkerPersonaConfig`).
-  - Transient Ollama errors retry with exponential backoff (`ollama_client.py:122-127`).
+  - Transient Ollama errors retry with exponential backoff (`ollama_client.py:OllamaClient._chat_with_backoff`); permanent 4xx (400/401/403/404/422) and timeouts are not retried ([adr-cloud-retry](#adr-cloud-retry)).
 - **Rationale:** One choke point for concurrency accounting and failure handling. The comments in `worker.py` that cite "CONTEXT.md locked decision" mean this entry.
 
 ### <a id="adr-streaming-state"></a>Live state streams per agent; frames are never empty mid-round
@@ -949,19 +949,19 @@ fixed; the code comments explain the guard. Fix commits are listed for `git show
 | <a id="f-08"></a>F-08 | Round 2 equal weights meant every reader got the same peers; fixed with a stable per-reader jitter. The jitter is gone: seeded per-reader sampling ([adr-diverse-peer-context](#adr-diverse-peer-context)) disperses readers by construction | 7ae6a69 | peers.py (peer_rng); tests/test_peer_selection.py (test_equal_weights_disperse_across_readers) |
 | <a id="f-09"></a>F-09 | JSON brace scanner ignored strings, so `}` in a rationale dropped the vote | 9748dd5 | inference/structured.py:json_object_candidates (shared by parsing.py and chat_structured since 2026-10); tests/test_parsing.py:test_tier2_brace_in_rationale_with_trailing_brace |
 | <a id="f-10"></a>F-10 | OpenAI strict schema kept min/max, got a 400, and silently fell back to json_object | c99d00b | inference/schema.py:25; tests/inference/test_schema.py:150 |
-| <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:297; tests/inference/test_rate_limit.py:271 |
+| <a id="f-11"></a>F-11 | Failed cloud calls leaked TPM reservation (follow-up in 9312419: refund only on failure) | c99d00b, 9312419 | inference/rate_limit.py:RateLimitController.release; tests/inference/test_rate_limit.py |
 | <a id="f-12"></a>F-12 | Replay advanced 2-round cycles to an empty round 3 | 66d680f | web/replay_manager.py:167 |
 | <a id="f-13"></a>F-13 | Settings PUT carried the old vendor's API key to a new provider | 66d680f, 9312419 | web/routes/settings.py:248; tests/test_web_settings.py:103 |
 | <a id="f-14"></a>F-14 | Blank account cells crashed the holdings loader outside the 503 path | 902d7b5 | holdings/loader.py:166 |
 | <a id="f-15"></a>F-15 | Interview window trim lost a turn when summarization failed | 902d7b5 | interview.py:265 |
 | <a id="f-16"></a>F-16 | `usePolling` stacked overlapping requests | df2f26a | fe/hooks/usePolling.ts:51 |
 | <a id="f-17"></a>F-17 | A sysctl read failure returned GREEN and cleared a crisis; now fail-stale with a timeout | c567a2f | memory_monitor.py:133; tests/test_memory_monitor.py:268,279 |
-| <a id="f-18"></a>F-18 | An unpriced model cost $0 under a spend cap; now priced at a conservative ceiling | f11aeee, cd5d35d | inference/budget.py:96,153,177; tests/inference/test_budget.py:89,96 |
+| <a id="f-18"></a>F-18 | An unpriced model cost $0 under a spend cap; now priced at a conservative ceiling | f11aeee, cd5d35d | inference/budget.py:BudgetMeter._cost_of; tests/inference/test_budget.py |
 | <a id="f-19"></a>F-19 | Empty peer set still injected a "peers exist" block | 7ae6a69 | peers.py:format_peer_context; tests/simulation/test_peer_context.py (test_format_peer_context_empty_peers) |
 | <a id="f-20"></a>F-20 | Influence weights normalized by a count that included PARSE_ERROR agents | 7ae6a69 | rounds.py:run_round |
 | <a id="f-21"></a>F-21 | Any monitor-loop exception silently killed throttling | 78744f6 | governor.py:360,374 |
-| <a id="f-22"></a>F-22 | Anthropic missing-tool ValueError escaped the provider error contract | c99d00b | inference/anthropic_provider.py:242 |
-| <a id="f-23"></a>F-23 | Retry-After HTTP-date ignored; now a shared clamped parser | c99d00b, 9312419 | inference/anthropic_provider.py:269; inference/openai_provider.py:307 |
+| <a id="f-22"></a>F-22 | Anthropic missing-tool ValueError escaped the provider error contract | c99d00b | inference/anthropic_provider.py:AnthropicProvider._parse_response |
+| <a id="f-23"></a>F-23 | Retry-After HTTP-date ignored; now a shared clamped parser | c99d00b, 9312419 | inference/types.py:parse_retry_after; inference/retry.py:retry_after_seconds |
 | <a id="f-24"></a>F-24 | Broadcaster crashed every tick during replay start-up (`has_store` gate) | 66d680f | web/broadcaster.py:44,46; web/replay_manager.py:144 |
 | <a id="f-25"></a>F-25 | Inference config save was not atomic (now temp file + `os.replace`) | 902d7b5 | inference/config.py:save_inference_config |
 | <a id="f-26"></a>F-26 | `/replay/start` skipped the cycle_id guard | 66d680f | web/routes/replay.py:112 |

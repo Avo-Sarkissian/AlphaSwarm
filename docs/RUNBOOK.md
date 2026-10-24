@@ -199,6 +199,10 @@ npm --prefix frontend run dev                           # http://localhost:5173
     returns 429 with no Retry-After at about 40 RPM.
   - Avoid reasoning models: they blow the token cap and break JSON mode.
 - `/api/health` reports `inference_mode` and running `spent_usd`.
+- Retries (`docs/DECISIONS.md#adr-cloud-retry`): 408/409/429/5xx retry with capped jittered backoff (at most 30 s per wait; `Retry-After` honoured up to 60 s), and a 429 pauses every agent once (one shared cooldown). 400/404/422 and timeouts are not retried: a wrong model id stops the run before seeding with "The … provider rejected model …" (CLI exit 2).
+- `limits.<provider>.avg_tokens_per_call` (default 1500) is the TPM reservation per call; lower it toward your real prompt size if `tokens_per_min` throttles too early.
+- Free models (the NVIDIA NIM free tier) are not in the pricing table. With a spend cap set they are priced at the conservative ceiling, so add `pricing_overrides` entries with `"0"` prices or leave the cap unset. `GET /api/settings/estimate` lists them in `unpriced_models`.
+- `DEFAULT_PRICING` is re-checked against the vendor pages at least every 180 days: `PRICING_VERIFIED_AT` in `inference/budget.py`, and `tests/inference/test_budget.py::TestPricingTable::test_pricing_table_was_verified_recently` fails when it is stale.
 
 ## 5. Full-run smoke / UAT checklist
 

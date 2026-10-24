@@ -9,7 +9,7 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 | Component | Where | Role |
 |---|---|---|
 | FastAPI + uvicorn | `alphaswarm.web.app:create_app` via `alphaswarm web` (uvicorn factory mode, `workers=1`, 127.0.0.1:8000; `./start` and `uv run start` call it) | REST `/api/*`, WebSocket `/ws/state`, and the built `frontend/dist` when present |
-| Simulation task | `web/simulation_manager.py` → `simulation.run_simulation` | One background asyncio task per run, held under an `asyncio.Lock` for its whole lifetime |
+| Simulation task | `web/simulation_manager.py` → `simulation.run_simulation` | One background asyncio task per run, held under an `asyncio.Lock` for its whole lifetime; the server process holds the per-user instance lock (`instance_lock.py`) |
 | Broadcaster | `web/broadcaster.py` + `web/wire.py` + `web/connection_manager.py` | ~5 Hz ticks: when a client is connected and the state version changed (or 1 s passed), `StateStore.snapshot()` (or the replay store's) → `build_frame` → versioned `StateFrame` JSON → one latest-wins `Queue(maxsize=1)` per client; nothing is serialized with no client; `broadcast_stats` logs counts per minute |
 | Ollama (MLX) | `localhost:11434`, `modelfiles/` | Aliases `alphaswarm-orchestrator` (qwen3.6:27b-nvfp4) and `alphaswarm-worker` (qwen3.6:35b-a3b-nvfp4); `OllamaModelManager` loads and unloads them one at a time |
 | Optional cloud LLMs | `.secrets/inference.json` (Settings UI) | OpenAI-compatible or Anthropic, chosen per role, wrapped in `BudgetTrackingProvider` and throttled by `RateLimitController` |
@@ -21,7 +21,9 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 ## Modules (`src/alphaswarm/`)
 
 - **Entry points and composition**
-  - `__main__.py`, `cli.py`: subcommands `inject | run | report | web`. `run` takes `--context-fixture PATH` (a point-in-time ContextPacket replaces the live fetch) or `--no-market-context` (no market block); either way the run gets no yfinance or RSS provider, so nothing is fetched. Every subcommand enters `services.runtime.open_runtime`; `report` runs `ReportService`, and `web` starts uvicorn in factory mode (`alphaswarm.web.app:create_app`, one worker). `report` takes the cycle id positionally or with `--cycle`. Every subcommand runs through `_run_command`: command output on stdout, logs on stderr, exit codes 0/1/2/130, tracebacks only with `-v`; bare `alphaswarm` prints help ([adr-cli-ux](DECISIONS.md#adr-cli-ux)).
+  - `__main__.py`, `cli.py`: subcommands `inject | run | report | web | doctor`; `inject`, `run`, `report` and `web` hold the instance lock (a held lock exits 75). `run` takes `--context-fixture PATH` (a point-in-time ContextPacket replaces the live fetch) or `--no-market-context` (no market block); either way the run gets no yfinance or RSS provider, so nothing is fetched. Every subcommand enters `services.runtime.open_runtime`; `report` runs `ReportService`, and `web` starts uvicorn in factory mode (`alphaswarm.web.app:create_app`, one worker). `report` takes the cycle id positionally or with `--cycle`. Every subcommand runs through `_run_command`: command output on stdout, logs on stderr, exit codes 0/1/2/130, tracebacks only with `-v`; bare `alphaswarm` prints help ([adr-cli-ux](DECISIONS.md#adr-cli-ux)).
+  - `doctor.py`: `alphaswarm doctor`, one read-only readiness report (Neo4j and its container, Ollama, the aliases, MLX on the running server, the launchctl env, foreign models, the UI build, the memory signal) built on `readiness.py`.
+  - `instance_lock.py`: the per-user `flock` that keeps one AlphaSwarm process at a time (a second one exits 75).
   - `app.py`: `AppState`, a container for the settings, StateStore, ResourceGovernor, Ollama client and model manager, GraphStateManager, and the market and news providers, plus `create_app_state()`.
   - `services/`: `runtime` (`InferenceRuntime`, `Runtime`, `build_runtime`, `open_runtime`, `open_simulation`), `jobs` (`JobRunner`: one orchestrator job at a time, per-cycle failure codes), `report` (`ReportService`), `advisory` (`AdvisoryService`, the only service that touches holdings) and `post_run` (`PostRunPipeline` and `ServicePostRunJobs`, which runs it over the services).
   - `web/app.py`: `create_app(settings, *, runtime_factory)` and the lifespan. The lifespan enters the runtime (`open_runtime` by default), loads the holdings into `PortfolioCache`, and `wire_web_state` builds the report and advisory services, the `PostRunPipeline` over them, the Simulation, Replay, and Connection managers and the broadcaster, with every teardown on one `AsyncExitStack`. `web/deps.py` holds typed accessors for those `app.state` slots.
@@ -45,17 +47,18 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   - `episodes.py`: `EpisodeRecord`, `compute_flip_type`, `EntityRef`/`EntityMatch`, `match_entities`, `new_decision_ids`.
   - `context_formatter.py`.
 - **Concurrency**
-  - `governor.py`: ResourceGovernor / TokenPool state machine; per-session time in THROTTLED/PAUSED/CRISIS, peak memory, and a transition probe logged on every state change.
-  - `memory_monitor.py`: psutil plus macOS sysctl memory pressure.
+  - `governor.py`: ResourceGovernor, one slot limiter (`_limit`, `_in_use`, `_paused`, `_fatal`) under a 5-state machine with PAUSED→CRISIS escalation, ramped crisis recovery and rolling-window failure accounting; per-session time in THROTTLED/PAUSED/CRISIS, peak memory, and a transition probe logged on every state change.
+  - `memory_monitor.py`: the macOS kernel memory signal through ctypes `sysctlbyname` (used % = 100 − `kern.memorystatus_level`, plus the pressure level); psutil only off macOS.
   - `inference/concurrency.py`: ConcurrencyController protocol.
-  - `inference/rate_limit.py`: the cloud controller.
+  - `inference/rate_limit.py`: the cloud controller and the shared retry gate (one cooldown after a 429, a fresh RPM token per retry).
+  - `inference/retry.py`: the retry classifier and capped full-jitter policy every backend uses ([adr-cloud-retry](DECISIONS.md#adr-cloud-retry)).
 - **Telemetry**
   - `telemetry.py`: per-round inference telemetry (`RoundTelemetry`, the `r{n}_*` cycle-metric keys), governor metrics, and the transition probe (loaded models, Docker VM memory) ([adr-inference-telemetry](DECISIONS.md#adr-inference-telemetry)).
   - `inference/call_log.py`: one `inference_call` log line per provider call (tokens, timings, finish reason, latency; never prompt or reply text).
 - **Inference**
-  - `ollama_client.py`: backoff, plus the rule that `num_ctx` is never sent per request; per-role connect/read timeouts (`OllamaTimeouts`).
+  - `ollama_client.py`: backoff (never for a permanent 4xx), plus the rule that `num_ctx` is never sent per request; per-role connect/read timeouts (`OllamaTimeouts`).
   - `ollama_models.py`: model load and unload; a one-token warm-up per load that logs `model_warmed`.
-  - `inference/`: provider protocol and types; the `ollama_provider`, `openai_provider`, and `anthropic_provider` adapters; `schema` (structured-output translation per vendor); `structured` (`chat_structured`: every orchestrator reply, decoded against its output model with tier-2 extraction and one validated retry); `budget`; `factory` (`build_providers`, `build_controller`, `inference_mode`; a local role without an Ollama client fails at build time); `caps` (one output cap per call site). The package `__init__` imports only the types and the provider protocol; other names load on first access.
+  - `inference/`: provider protocol and types; the `ollama_provider`, `openai_provider`, and `anthropic_provider` adapters; `schema` (structured-output translation per vendor); `structured` (`chat_structured`: every orchestrator reply, decoded against its output model with tier-2 extraction and one validated retry); `budget` (meter, normalized pricing with `PRICING_VERIFIED_AT`, the run estimate); `factory` (`build_providers`, `build_controller`, `attach_retry_gate`, `preflight_cloud_roles`, `inference_mode`; a local role without an Ollama client fails at build time); `caps` (one output cap per call site). The package `__init__` imports only the types and the provider protocol; other names load on first access.
 - **Persistence**
   - `graph/`: the GraphStateManager facade (`manager.py`: driver, `_read`/`_write`, error mapping, one-line delegations) over `schema_writes.py` (schema, writes, influence edges, cycle status), `analytics.py` (report, shock and influence-edge reads), `replay_interview.py` (replay, cycle lookups, agent decisions, interview rows) and `rows.py` (typed rows).
   - `influence.py`: pure influence weights and shock aggregation.
