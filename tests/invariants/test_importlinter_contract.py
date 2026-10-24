@@ -101,11 +101,14 @@ def test_pyproject_toml_contains_forbidden_contract_for_holdings() -> None:
     assert 'forbidden_modules = ["alphaswarm.holdings"]' in pyproject
     # Whitelist invariant: advisory and web.routes.holdings must NOT appear in source_modules
     # (they are the two allowed importers).
-    contract_block = pyproject.split("[[tool.importlinter.contracts]]", 1)[1]
-    assert '"alphaswarm.advisory"' not in contract_block, (
+    # Only the holdings contract's own source_modules: later contracts (e.g. "Export
+    # isolation") may list alphaswarm.advisory as a forbidden module.
+    holdings_sources = _contracts()[0]["source_modules"]
+    assert isinstance(holdings_sources, list)
+    assert "alphaswarm.advisory" not in holdings_sources, (
         "alphaswarm.advisory must NOT appear in forbidden source_modules (D-04 whitelist)"
     )
-    assert '"alphaswarm.web.routes.holdings"' not in contract_block, (
+    assert "alphaswarm.web.routes.holdings" not in holdings_sources, (
         "alphaswarm.web.routes.holdings must NOT appear in forbidden source_modules (D-04 whitelist)"
     )
 

@@ -312,6 +312,23 @@ class AgentNotFoundError(AlphaSwarmError):
         self.cycle_id = cycle_id
 
 
+class CycleNotFoundError(AlphaSwarmError):
+    """No Cycle node has this id (HTTP 404 cycle_not_found)."""
+
+    def __init__(self, cycle_id: str) -> None:
+        super().__init__(f"No cycle {cycle_id}")
+        self.cycle_id = cycle_id
+
+
+class CycleNotReadyError(AlphaSwarmError):
+    """The cycle exists but is still being written (HTTP 422 cycle_not_ready)."""
+
+    def __init__(self, cycle_id: str, status: str) -> None:
+        super().__init__(f"Cycle {cycle_id} is {status}; export it once it has finished")
+        self.cycle_id = cycle_id
+        self.status = status
+
+
 # ---------------------------------------------------------------------------
 # UI-safe description of a failed run (StateStore.last_error)
 # ---------------------------------------------------------------------------
