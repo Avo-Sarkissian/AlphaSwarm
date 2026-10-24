@@ -54,6 +54,8 @@ MIN_EVENTS: Final = 15
 MAX_EVENTS: Final = 20
 MIN_POST_CUTOFF_SHARE: Final = 0.4
 BOOT_SEED: Final = 20261003
+SINGLE_K: Final = 5  # samples of the single-call baseline
+DEFAULT_SC_K: Final = 100 * EVAL_NUM_ROUNDS  # compute-matched self-consistency: one swarm cycle
 
 _FROZEN: Final = ConfigDict(frozen=True, extra="forbid")
 
