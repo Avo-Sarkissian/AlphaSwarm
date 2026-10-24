@@ -546,25 +546,3 @@ def build_round_context(
         ),
         control_ids=control_ids,
     )
-
-
-def apply_holdout_and_priors(
-    personas: Sequence[AgentPersona],
-    contexts: Sequence[str | None],
-    exposures: Sequence[tuple[str, ...]],
-    prev_decisions: Sequence[tuple[str, AgentDecision]],
-    source_round: int,
-    *,
-    sim: SimulationSettings,
-    control_ids: frozenset[str],
-) -> tuple[list[str | None], list[tuple[str, ...]], list[str | None]]:
-    """Blank the holdout's peer contexts and exposures, and build own-prior lines.
-
-    Control readers get no peers but keep their own prior, so their flips
-    measure everything except peer influence (docs/DECISIONS.md#adr-diverse-peer-context).
-    """
-    prev_by_id = dict(prev_decisions)
-    blanked = [None if p.id in control_ids else context for p, context in zip(personas, contexts, strict=True)]
-    shown = [() if p.id in control_ids else exposure for p, exposure in zip(personas, exposures, strict=True)]
-    priors = [own_prior_line(prev_by_id.get(p.id), source_round) if sim.own_prior_memory else None for p in personas]
-    return blanked, shown, priors

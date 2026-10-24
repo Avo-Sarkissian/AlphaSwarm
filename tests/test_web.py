@@ -943,6 +943,7 @@ async def test_sim_manager_run_passes_consume_shock() -> None:
         patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.services.runtime.InferenceRuntime.run_provenance", new=AsyncMock(return_value=None)),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
         patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_capture_run)),
     ):
@@ -1102,6 +1103,7 @@ async def test_sim_manager_cancellation_resets_phase_to_idle() -> None:
         patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.services.runtime.InferenceRuntime.run_provenance", new=AsyncMock(return_value=None)),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
         patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_long_run)),
     ):
@@ -1460,6 +1462,7 @@ async def test_m8x_sim_manager_cancellation_phase_reset_before_lock_release() ->
         patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.services.runtime.InferenceRuntime.run_provenance", new=AsyncMock(return_value=None)),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
         patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_long_run)),
     ):
@@ -1559,6 +1562,7 @@ async def test_m8x_sim_manager_complete_phase_set_once() -> None:
         patch("alphaswarm.inference.config.load_inference_config", return_value=MagicMock()),
         patch("alphaswarm.inference.factory.build_providers", return_value=mock_built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.services.runtime.InferenceRuntime.run_provenance", new=AsyncMock(return_value=None)),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
         patch("alphaswarm.simulation.run_simulation", new=AsyncMock(side_effect=_fake_pipeline)),
     ):

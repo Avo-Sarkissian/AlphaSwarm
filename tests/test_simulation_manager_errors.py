@@ -82,6 +82,7 @@ def _patched_run(
         load_patch,
         patch("alphaswarm.inference.factory.build_providers", return_value=built),
         patch("alphaswarm.inference.factory.build_controller", return_value=MagicMock()),
+        patch("alphaswarm.services.runtime.InferenceRuntime.run_provenance", new=AsyncMock(return_value=None)),
         patch("alphaswarm.inference.factory.inference_mode", return_value="local"),
         patch("alphaswarm.simulation.run_simulation", new=run_mock),
     ):

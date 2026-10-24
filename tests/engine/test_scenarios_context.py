@@ -8,6 +8,7 @@ from unittest.mock import MagicMock
 from alphaswarm.ingestion.providers import FakeMarketDataProvider, FakeNewsProvider
 from alphaswarm.ingestion.types import NewsSlice
 from alphaswarm.interview import InterviewContext, ensure_decision_narrative
+from alphaswarm.settings import AppSettings, SimulationSettings
 from alphaswarm.types import AgentPersona
 from alphaswarm.worker import MARKET_CONTEXT_GUARD, UNTRUSTED_DATA_OPEN
 from tests.engine.scenario import RunScenario, recorded_decisions, round_calls
@@ -23,7 +24,11 @@ async def test_round_prompts_show_previous_round_peers_and_never_self(
     scripted_worker: ScriptedProvider,
     fake_graph: MagicMock,
     all_personas: list[AgentPersona],
+    scenario_settings: AppSettings,
 ) -> None:
+    # Selector invariants for readers who see peers; the control holdout is pinned in
+    # tests/engine/test_round_experiments.py (docs/DECISIONS.md#adr-diverse-peer-context).
+    scenario_settings.simulation = SimulationSettings(control_fraction=0.0)
     await run_scenario()
     bracket_of = {p.id: p.bracket for p in all_personas}
     assert len(round_calls(scripted_worker, 1)) == 100
@@ -78,9 +83,11 @@ async def test_narrative_prompts_identify_every_agent(
 
 
 async def test_market_context_reaches_round_1_only(
-    run_scenario: RunScenario, scripted_worker: ScriptedProvider
+    run_scenario: RunScenario, scripted_worker: ScriptedProvider, scenario_settings: AppSettings
 ) -> None:
-    """Pins docs/DECISIONS.md#adr-market-context and #p40-d-06 (Round 1 only, fenced)."""
+    """market_context_rounds=1 sends the fenced block in Round 1 only (the original
+    behaviour; the default is in docs/DECISIONS.md#adr-market-context)."""
+    scenario_settings.simulation = SimulationSettings(market_context_rounds=1)
     news = FakeNewsProvider(
         {
             "ZZZT Holdings": NewsSlice(

@@ -246,3 +246,24 @@ class OllamaModelManager:
                 # stuck model can't abort the loop and leave the rest resident,
                 # preserving the max-2-models invariant (docs/DECISIONS.md#f-32).
                 await self.unload_model(name)
+
+
+async def model_digest(client: OllamaClient, model: str) -> str | None:
+    """Weights digest of a locally installed model, or None when unknown.
+
+    Recorded in the run manifest (docs/DECISIONS.md#adr-run-manifest). Best
+    effort: provenance must never fail a run, so an unreachable server or a
+    model that is not installed yields None and a warning. ``alias`` and
+    ``alias:latest`` name the same model.
+    """
+    try:
+        listing = await client.raw_client.list()
+    except Exception:  # noqa: BLE001 - best effort; the run itself reports a dead server
+        logger.warning("model_digest_unavailable", model=model, exc_info=True)
+        return None
+    wanted = model.removesuffix(":latest")
+    for entry in listing.models:
+        if (entry.model or "").removesuffix(":latest") == wanted:
+            return entry.digest or None
+    logger.warning("model_digest_not_found", model=model)
+    return None

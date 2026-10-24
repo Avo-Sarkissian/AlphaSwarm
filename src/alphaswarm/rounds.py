@@ -19,18 +19,18 @@ import structlog
 from alphaswarm.batch_dispatcher import dispatch_wave
 from alphaswarm.episodes import EpisodeRecord, compute_flip_type, match_entities, new_decision_ids
 from alphaswarm.errors import RoundAlignmentError, RoundFailedError
-from alphaswarm.metrics import split_flips
+from alphaswarm.manifest import RETEST_ROUND, derive_call_seed
+from alphaswarm.metrics import filter_round_citations, retest_metrics, round_experiment_metrics
 from alphaswarm.peers import (
-    PeerContextsResult,
-    apply_holdout_and_priors,
-    build_peer_contexts,
+    RoundPromptContext,
+    build_round_context,
     compute_exposure_metrics,
-    select_control_ids,
+    select_shock_treated_ids,
 )
 from alphaswarm.personas import persona_to_worker_config
 from alphaswarm.state import BracketSummary
 from alphaswarm.telemetry import RoundTelemetry
-from alphaswarm.types import SignalType
+from alphaswarm.types import SignalType, WorkerPersonaConfig
 
 if TYPE_CHECKING:
     from alphaswarm.episodes import EntityRef
@@ -39,7 +39,8 @@ if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.ingestion.types import ContextPacket
-    from alphaswarm.settings import AppSettings
+    from alphaswarm.manifest import RunProvenance
+    from alphaswarm.settings import AppSettings, SimulationSettings
     from alphaswarm.state import StateSink
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig
 
@@ -224,15 +225,20 @@ async def _persist_round_records(
     peer_contexts: Sequence[str | None] | None,
     prev_decisions: Sequence[tuple[str, AgentDecision]] | None,
     entities: Sequence[EntityRef],
+    exposures: Mapping[str, Sequence[str]] | None = None,
     control_ids: Collection[str] = (),
+    citations_invalid: Mapping[str, int] | None = None,
+    shock_treated_ids: Collection[str] | None = None,
 ) -> PersistRoundResult:
     """Persist one round atomically through GraphStateManager.persist_round.
 
     Builds the round's EpisodeRecords (peer context aligned with
     ``personas``, flip type from ``prev_decisions``) and entity matches, then
     writes Decisions, CITED, episodes and REFERENCES in one transaction
-    (docs/DECISIONS.md#p4-d-08). ``control_ids`` marks the seeded no-peer
-    holdout on its Decisions (docs/DECISIONS.md#adr-diverse-peer-context).
+    (docs/DECISIONS.md#p4-d-08). ``exposures``, ``control_ids``,
+    ``citations_invalid`` and ``shock_treated_ids`` become the Decisions'
+    peer_ids, control, citations_invalid and shock_treated properties
+    (docs/DECISIONS.md#adr-run-manifest).
     """
     decision_ids = new_decision_ids(len(decisions))
     peer_by_agent: dict[str, str] = {}
@@ -259,6 +265,9 @@ async def _persist_round_records(
         episodes=episodes,
         entity_matches=match_entities(episodes, entities),
         control_ids=control_ids,
+        exposures=exposures,
+        citations_invalid=citations_invalid,
+        shock_treated_ids=shock_treated_ids,
     )
 
 
@@ -286,6 +295,9 @@ class SimulationDeps:
     market: MarketDataProvider | None = None
     news: NewsProvider | None = None
     context_fixture: ContextPacket | None = None
+    # Exact provider types and Ollama digests from the composition root; None
+    # falls back to the provider protocol (docs/DECISIONS.md#adr-run-manifest).
+    provenance: RunProvenance | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -313,10 +325,113 @@ class RoundContext:
     personas: tuple[AgentPersona, ...]
     brackets: tuple[BracketConfig, ...]
     rumor: str
-    market_context: str | None  # fenced block for round 1 (docs/DECISIONS.md#adr-market-context)
+    market_context: (
+        str | None
+    )  # fenced block for rounds 1..market_context_rounds (docs/DECISIONS.md#adr-market-context)
     entities: tuple[EntityRef, ...]
     run_seed: str
     on_round_complete: OnRoundComplete = None
+    sim_seed: int | None = None  # effective run seed; None sends no per-call seeds
+
+
+@dataclasses.dataclass(frozen=True)
+class RoundInputs:
+    """Everything one round sends to ``dispatch_wave`` (docs/DECISIONS.md#adr-run-manifest)."""
+
+    prompt: RoundPromptContext
+    worker_configs: tuple[WorkerPersonaConfig, ...]
+    user_message: str
+    market_context: str | None
+    call_seeds: tuple[int, ...] | None
+    user_messages: tuple[str, ...] | None = None  # per agent, only for a shock split round
+    shock_treated_ids: frozenset[str] | None = None
+
+
+def worker_configs_for(personas: Sequence[AgentPersona], sim: SimulationSettings) -> list[WorkerPersonaConfig]:
+    """Worker configs in persona order; ``uniform_temperature`` overrides the brackets'."""
+    configs = [persona_to_worker_config(p) for p in personas]
+    if sim.uniform_temperature is not None:
+        for config in configs:
+            config["temperature"] = sim.uniform_temperature
+    return configs
+
+
+def prepare_round_inputs(
+    ctx: RoundContext, round_num: int, prev: RoundOutcome | None, shocks: Sequence[str]
+) -> RoundInputs:
+    """Prompt context, worker configs, message, market block and call seeds for one round."""
+    sim = ctx.deps.settings.simulation
+    prompt = build_round_context(
+        ctx.personas,
+        prev.decisions if prev is not None else (),
+        round_num,
+        sim=sim,
+        run_seed=ctx.run_seed,
+        global_citation_weights=prev.influence_weights if prev is not None else None,
+    )
+    seeds = (
+        tuple(derive_call_seed(ctx.sim_seed, p.id, round_num) for p in ctx.personas)
+        if ctx.sim_seed is not None
+        else None
+    )
+    user_message = _with_shocks(ctx.rumor, shocks)
+    user_messages: tuple[str, ...] | None = None
+    shock_treated: frozenset[str] | None = None
+    if sim.shock_treatment_split and shocks:
+        # Half of each bracket sees every active shock; the rest see the plain
+        # rumor, so the shock's effect is treated minus untreated pivots
+        # (docs/DECISIONS.md#adr-run-manifest).
+        shock_treated = select_shock_treated_ids(ctx.personas, run_seed=ctx.run_seed)
+        plain = _with_shocks(ctx.rumor, ())
+        user_messages = tuple(user_message if p.id in shock_treated else plain for p in ctx.personas)
+    return RoundInputs(
+        prompt=prompt,
+        worker_configs=tuple(worker_configs_for(ctx.personas, sim)),
+        user_message=user_message,
+        market_context=ctx.market_context if round_num <= sim.market_context_rounds else None,
+        call_seeds=seeds,
+        user_messages=user_messages,
+        shock_treated_ids=shock_treated,
+    )
+
+
+async def retest_round1(
+    ctx: RoundContext, inputs: RoundInputs, first: Sequence[tuple[str, AgentDecision]]
+) -> dict[str, float | int]:
+    """Draw Round 1 again with fresh call seeds and compare it with the first draw.
+
+    Same prompts, different sampling seeds (``RETEST_ROUND``); nothing is
+    persisted, streamed to the UI or added to the telemetry. The share of agents
+    whose signal changes is the noise floor every flip rate is read against
+    (docs/DECISIONS.md#adr-run-manifest).
+    """
+    deps = ctx.deps
+    seeds = (
+        [derive_call_seed(ctx.sim_seed, p.id, RETEST_ROUND) for p in ctx.personas] if ctx.sim_seed is not None else None
+    )
+    logger.info("round1_retest_started", cycle_id=ctx.cycle_id, agent_count=len(ctx.personas))
+    raw = await dispatch_wave(
+        personas=list(inputs.worker_configs),
+        governor=deps.controller,
+        provider=deps.worker,
+        user_message=inputs.user_message,
+        settings=deps.settings.governor,
+        peer_contexts=list(inputs.prompt.peer_blocks),
+        market_context=inputs.market_context,
+        state_store=None,
+        round_num=1,
+        own_priors=list(inputs.prompt.own_prior_lines),
+        call_seeds=seeds,
+    )
+    second = [(config["agent_id"], decision) for config, decision in zip(inputs.worker_configs, raw, strict=True)]
+    metrics = retest_metrics(first, second)
+    logger.info(
+        "round1_retest_completed",
+        cycle_id=ctx.cycle_id,
+        pairs=metrics["r1_retest_pairs"],
+        flips=metrics["r1_retest_flips"],
+    )
+    return metrics
 
 
 def _round_metrics(
@@ -378,44 +493,22 @@ async def run_round(
             deps.state.record_applied_shock(text, round_num)
         logger.info("shock_injected", cycle_id=ctx.cycle_id, round_num=round_num, shock_length=len(text))
 
-    peers: PeerContextsResult | None = None
-    control_ids: frozenset[str] | None = None
-    own_priors: list[str | None] | None = None
+    inputs = prepare_round_inputs(ctx, round_num, prev, shocks)
+    control_ids = inputs.prompt.control_ids
     metrics: dict[str, float | int | str | bool] = {}
     if prev is not None:
-        peers = build_peer_contexts(
-            personas,
-            prev.decisions,
-            round_num - 1,
-            sim=deps.settings.simulation,
-            run_seed=ctx.run_seed,
-            global_citation_weights=prev.influence_weights,
-        )
-        # Seeded no-peer holdout and own priors, before the exposure counts
-        # (docs/DECISIONS.md#adr-diverse-peer-context).
-        control_ids = select_control_ids(
-            personas, fraction=deps.settings.simulation.control_fraction, run_seed=ctx.run_seed
-        )
-        contexts, exposures, own_priors = apply_holdout_and_priors(
-            personas,
-            list(peers.contexts),
-            list(peers.exposures),
-            prev.decisions,
-            round_num - 1,
-            sim=deps.settings.simulation,
-            control_ids=control_ids,
-        )
-        peers = PeerContextsResult(contexts=tuple(contexts), exposures=tuple(exposures))
-        metrics.update(compute_exposure_metrics(peers.exposures, personas, round_num=round_num))
+        # Exposure counts use what readers were actually shown: control readers
+        # count as seeing nobody (docs/DECISIONS.md#adr-diverse-peer-context).
+        metrics.update(compute_exposure_metrics(inputs.prompt.exposures, personas, round_num=round_num))
     logger.info(
         "round_dispatch_start",
         cycle_id=ctx.cycle_id,
         round_num=round_num,
         agent_count=len(personas),
-        peers_found=sum(1 for c in peers.contexts if c) if peers is not None else 0,
+        peers_found=sum(1 for block in inputs.prompt.peer_blocks if block),
     )
 
-    worker_configs = [persona_to_worker_config(p) for p in personas]
+    worker_configs = list(inputs.worker_configs)
     # One telemetry aggregate per round (docs/DECISIONS.md#adr-inference-telemetry);
     # a cloud worker has no local context window to warn about.
     telemetry = RoundTelemetry(
@@ -425,18 +518,32 @@ async def run_round(
         personas=worker_configs,
         governor=deps.controller,
         provider=deps.worker,
-        user_message=_with_shocks(ctx.rumor, shocks),
+        user_message=inputs.user_message,
         settings=deps.settings.governor,
-        peer_contexts=list(peers.contexts) if peers is not None else None,
-        market_context=ctx.market_context if round_num == 1 else None,
+        peer_contexts=list(inputs.prompt.peer_blocks),
+        market_context=inputs.market_context,
         state_store=deps.state,
         round_num=round_num,
-        own_priors=own_priors,
         telemetry=telemetry,
+        own_priors=list(inputs.prompt.own_prior_lines),
+        call_seeds=list(inputs.call_seeds) if inputs.call_seeds is not None else None,
+        user_messages=list(inputs.user_messages) if inputs.user_messages is not None else None,
     )
     if len(raw) != len(worker_configs):
         raise RoundAlignmentError(round_num, expected=len(worker_configs), actual=len(raw))
     decisions = tuple((config["agent_id"], decision) for config, decision in zip(worker_configs, raw, strict=True))
+    exposure_by_agent = {p.id: shown for p, shown in zip(ctx.personas, inputs.prompt.exposures, strict=True)}
+    # Only citations of peers the reader was shown survive; the rest are counted
+    # (docs/DECISIONS.md#adr-diverse-peer-context).
+    decisions, citations_invalid = filter_round_citations(decisions, exposure_by_agent)
+    if any(citations_invalid.values()):
+        logger.info(
+            "citations_filtered",
+            cycle_id=ctx.cycle_id,
+            round_num=round_num,
+            invalid=sum(citations_invalid.values()),
+            agents=sum(1 for count in citations_invalid.values() if count),
+        )
     _raise_if_round_failed(round_num, decisions, deps.settings.governor.round_abort_failure_percent)
     persisted = await _persist_round_records(
         deps.graph,
@@ -444,10 +551,13 @@ async def run_round(
         round_num,
         decisions,
         personas=personas,
-        peer_contexts=peers.contexts if peers is not None else None,
+        peer_contexts=inputs.prompt.peer_blocks,
         prev_decisions=prev.decisions if prev is not None else None,
         entities=ctx.entities,
-        control_ids=control_ids or (),
+        exposures=exposure_by_agent,
+        control_ids=control_ids,
+        citations_invalid=citations_invalid,
+        shock_treated_ids=inputs.shock_treated_ids,
     )
 
     weights: dict[str, float] = {}
@@ -467,15 +577,6 @@ async def run_round(
     if deps.state is not None:
         await deps.state.set_bracket_summaries(summaries)
     shift = compute_shifts(prev.decisions, decisions, personas) if prev is not None else None
-    if prev is not None and control_ids is not None:
-        flips_control, flips_treated = split_flips(prev.decisions, decisions, control_ids)
-        metrics.update(
-            {
-                f"r{round_num}_control_agents": len(control_ids),
-                f"r{round_num}_flips_control": flips_control,
-                f"r{round_num}_flips_treated": flips_treated,
-            }
-        )
     if ctx.on_round_complete is not None:
         await ctx.on_round_complete(
             RoundCompleteEvent(
@@ -516,15 +617,27 @@ async def run_round(
         round_num=round_num,
         parse_errors=metrics[f"r{round_num}_parse_errors"],
     )
+    experiment_metrics = round_experiment_metrics(
+        round_num,
+        decisions=decisions,
+        prev_decisions=prev.decisions if prev is not None else None,
+        exposures=exposure_by_agent,
+        control_ids=control_ids,
+        citations_invalid=citations_invalid,
+        personas=ctx.personas,
+        shock_treated_ids=inputs.shock_treated_ids,
+    )
+    if round_num == 1 and deps.settings.simulation.retest_round1:
+        experiment_metrics.update(await retest_round1(ctx, inputs, decisions))
     return RoundOutcome(
         round_num=round_num,
         decisions=decisions,
         decision_ids=tuple(persisted.decision_ids),
-        exposures=peers.exposures if peers is not None else tuple(() for _ in personas),
+        exposures=inputs.prompt.exposures,
         shift=shift,
         bracket_summaries=summaries,
         influence_weights=weights,
         applied_shocks=tuple(shocks),
         seconds=seconds,
-        metrics=metrics,
+        metrics={**metrics, **experiment_metrics},
     )

@@ -22,8 +22,16 @@ import structlog
 from alphaswarm.context_formatter import format_market_context
 from alphaswarm.errors import run_error_from_exception
 from alphaswarm.ingestion.types import ContextPacket
-from alphaswarm.manifest import current_git_revision
+from alphaswarm.manifest import (
+    build_run_manifest,
+    current_git_revision,
+    derive_sim_seed,
+    provenance_from_providers,
+    sha256_text,
+)
 from alphaswarm.personas import compute_prompt_template_hash, generate_personas
+from alphaswarm.prompts.decision import JSON_OUTPUT_INSTRUCTIONS
+from alphaswarm.prompts.modifiers import MODIFIER_GENERATION_PROMPT
 from alphaswarm.rounds import (
     OnRoundComplete,
     RoundContext,
@@ -43,7 +51,13 @@ if TYPE_CHECKING:
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.settings import SimulationSettings
     from alphaswarm.state import BracketSummary, StateSink
-    from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig, ParsedSeedResult
+    from alphaswarm.types import (
+        AgentDecision,
+        AgentPersona,
+        BracketConfig,
+        ParsedModifiersResult,
+        ParsedSeedResult,
+    )
 
 __all__ = ["SimulationDeps", "SimulationResult", "assemble_market_context", "run_simulation"]
 
@@ -60,8 +74,9 @@ _PEER_SELECTION_VERSION: Final = 2
 """Stamped as ``peer_selection_version``: 2 = seeded stratified sampling with a
 per-bracket cap and shuffle; 1 = the legacy deterministic top-weight fill."""
 
-_PEER_SEED_SOURCE: Final = "cycle_id"
-"""What run_simulation passes as ``run_seed`` to the peer builder."""
+_PEER_SEED_SOURCE: Final = "sim_seed"
+"""What run_simulation passes as ``run_seed`` to the peer builder: ``str(sim_seed)``
+(docs/DECISIONS.md#adr-run-manifest). Cycles recorded before the run manifest say "cycle_id"."""
 
 
 def _provider_label(provider: InferenceProvider) -> str:
@@ -369,6 +384,58 @@ async def _record_cycle_metrics(
         logger.warning("cycle_metrics_write_failed", cycle_id=cycle_id, exc_info=True)
 
 
+def _collect_prompt_hashes(brackets: Sequence[BracketConfig]) -> dict[str, str]:
+    """sha256 of every static prompt text a run depends on (docs/DECISIONS.md#adr-run-manifest).
+
+    ``persona_template`` covers templates, static modifiers and the JSON
+    instructions together (the value also stored as Cycle.prompt_template_hash);
+    the per-piece hashes show which part changed between two manifests.
+    """
+    hashes = {
+        "persona_template": compute_prompt_template_hash(brackets),
+        "json_output_instructions": sha256_text(JSON_OUTPUT_INSTRUCTIONS),
+        "modifier_prompt": sha256_text(MODIFIER_GENERATION_PROMPT),
+    }
+    for bracket in brackets:
+        hashes[f"bracket:{bracket.bracket_type.value}"] = sha256_text(bracket.system_prompt_template)
+    return hashes
+
+
+async def _record_run_manifest(
+    deps: SimulationDeps,
+    cycle_id: str,
+    brackets: Sequence[BracketConfig],
+    modifier_result: ParsedModifiersResult | None,
+    market_context: str | None,
+    *,
+    git: tuple[str | None, bool | None],
+) -> int:
+    """Fix the run seed and stamp the run manifest on the Cycle; return the seed.
+
+    Runs after seeding and before Round 1, so a run that fails later is still
+    described. ``sim_seed`` is the configured value or, when unset, a blake2b
+    derivation of the cycle id. A failed write fails the run: an undescribed
+    cycle must not look like a valid experiment (docs/DECISIONS.md#adr-run-manifest).
+    """
+    sim = deps.settings.simulation
+    sim_seed = sim.sim_seed if sim.sim_seed is not None else derive_sim_seed(cycle_id)
+    manifest = build_run_manifest(
+        cycle_id=cycle_id,
+        settings=deps.settings,
+        brackets=brackets,
+        provenance=deps.provenance or provenance_from_providers(deps.orchestrator, deps.worker),
+        prompt_hashes=_collect_prompt_hashes(brackets),
+        modifiers=modifier_result.modifiers if modifier_result is not None else None,
+        modifier_parse_tier=modifier_result.parse_tier if modifier_result is not None else None,
+        market_context=market_context,
+        sim_seed=sim_seed,
+        git_sha=git[0],
+        git_dirty=git[1],
+    )
+    await deps.graph.write_run_manifest(cycle_id, manifest)
+    return sim_seed
+
+
 async def _run_simulation(
     rumor: str,
     deps: SimulationDeps,
@@ -412,6 +479,9 @@ async def _run_simulation(
         roster = generate_personas(list(brackets), modifiers=modifier_result.modifiers)
         logger.info("personas_regenerated_with_modifiers", parse_tier=modifier_result.parse_tier)
     market_context = await _round_1_market_context(deps, cycle_id, parsed_result)
+    sim_seed = await _record_run_manifest(
+        deps, cycle_id, brackets, modifier_result, market_context, git=(git_sha, git_dirty)
+    )
 
     ctx = RoundContext(
         deps=deps,
@@ -421,8 +491,9 @@ async def _run_simulation(
         rumor=rumor,
         market_context=market_context,
         entities=tuple(await graph.read_cycle_entities(cycle_id)),
-        run_seed=cycle_id,
+        run_seed=str(sim_seed),  # docs/DECISIONS.md#adr-run-manifest
         on_round_complete=on_round_complete,
+        sim_seed=sim_seed,
     )
     outcomes: list[RoundOutcome] = []
     shocks: list[str] = []

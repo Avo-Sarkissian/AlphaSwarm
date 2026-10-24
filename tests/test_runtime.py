@@ -159,8 +159,10 @@ async def test_open_simulation_yields_deps_and_closes_providers_without_teardown
     )
     controller = object()
     inference.build_controller = AsyncMock(return_value=controller)
+    inference.run_provenance = AsyncMock(return_value=None)
     async with open_simulation(inference, runtime.app_state, state=runtime.app_state.state_store) as deps:
         assert (deps.orchestrator, deps.worker, deps.controller) == (orchestrator, worker, controller)
+        assert deps.provenance is None
         assert deps.graph is runtime.app_state.graph_manager
         assert deps.market is runtime.app_state.market_provider
         assert deps.state is runtime.app_state.state_store
@@ -228,6 +230,7 @@ async def test_open_simulation_shares_the_rate_limit_gate(tmp_path: Path) -> Non
     )
     inference.build_controller = AsyncMock(return_value=controller)
     inference.config = AsyncMock(return_value=InferenceConfig(orchestrator=role, worker=role))
+    inference.run_provenance = AsyncMock(return_value=None)
     async with open_simulation(inference, runtime.app_state, state=None) as deps:
         assert deps.controller is controller
         assert worker.retry_gate is controller

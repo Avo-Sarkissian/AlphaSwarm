@@ -51,9 +51,10 @@ them from Neo4j. Metric definitions: `docs/DECISIONS.md#adr-inference-telemetry`
   AlphaSwarm process running.
 - **Seeds:** `apple-anthropic`, `nvda-earnings-miss`, `fed-emergency-cut` from
   `scripts/benchmark_seeds.json`; one run per seed per arm; `ALPHASWARM_NUM_ROUNDS=3`.
-- **Confound:** Round 1 prompts carry market and news context fetched at run time
-  (`docs/DECISIONS.md#adr-market-context`), so Round 1 prompt sizes differ between
-  runs. Prefill comparisons use Rounds 2-3.
+- **Confound:** prompts carry market and news context fetched at run time
+  (`docs/DECISIONS.md#adr-market-context`), so prompt sizes differ between runs. Since
+  the block reaches every round by default, prefill comparisons set
+  `ALPHASWARM_SIMULATION__MARKET_CONTEXT_ROUNDS=1` and use Rounds 2-3.
 - **Distribution rule:** total-variation (TV) distance between the final
   buy/sell/hold distributions of the same seed in two arms. "Unchanged" means mean
   TV ≤ 0.15 over the seeds and no seed above 0.25. When one seed is above 0.25,
@@ -118,3 +119,27 @@ module stays under `tests/integration/`.
 | Backend, Neo4j | `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j` | not measured: neo4j-test was in use by another run when this was counted |
 | Frontend | `npm --prefix frontend test` | 392 passed |
 | Import contracts | `uv run lint-imports` | 1 kept, 0 broken |
+
+## P7.1 — reproducibility (same manifest, same seed)
+
+Protocol: two `alphaswarm run` cycles of `fed-emergency-cut` with `ALPHASWARM_SIMULATION__SIM_SEED=4242` and `ALPHASWARM_SIMULATION__EXPERIMENT_TAG=p7-1-repro`, read with `scripts/peer_effect.py exposure-diff` and `scripts/compare_cycles.py --group-by experiment_tag --tag p7-1-repro`. Round 2 peers depend only on the run seed and on which Round 1 agents failed, so they must match exactly when the Round 1 PARSE_ERROR sets match. Round 3 may differ, because Round 2 citations differ (sampling is not bit-exact under NUM_PARALLEL batching).
+
+No runs recorded: the reproducibility pair runs on the reference machine.
+
+## P7.3 — peer-attributable flips (control holdout)
+
+Protocol: eight 3-round cycles, the four `scripts/benchmark_seeds.json` rumors × `sim_seed` 1901 and 1902, `ALPHASWARM_SIMULATION__CONTROL_FRACTION=0.2`, tag `p7-3-control`, `ALPHASWARM_SIMULATION__RETEST_ROUND1=true` on the 1901 runs. Estimator: per bracket, each cycle's treated flip rate minus its control flip rate (Rounds 2-3 pooled), averaged over cycles, with a percentile bootstrap 95% interval over cycles (`scripts/peer_effect.py effect --tag p7-3-control --markdown`). A PARSE_ERROR on either side of a round pair is not a flip. Twenty control readers per cycle means two to eight control observations per bracket per cycle (Rounds 2-3), so per-bracket intervals are wide; the "all" row is the headline number.
+
+No runs recorded: the eight control cycles run on the reference machine.
+
+## Noise floor (Round 1 retest)
+
+Protocol: the four `p7-3-control` cycles with `sim_seed` 1901 draw Round 1 twice with different call seeds (`scripts/peer_effect.py noise --tag p7-3-control --markdown`). A flip rate at or below this floor is indistinguishable from sampling noise.
+
+No runs recorded: the retest comes from the `sim_seed` 1901 control cycles.
+
+## Shock treatment split
+
+Protocol (optional owner run): two cycles with `ALPHASWARM_SIMULATION__SHOCK_TREATMENT_SPLIT=true`, tag `p7-3-shock`, and one shock injected during Round 1 through the web API (`scripts/peer_effect.py shock --tag p7-3-shock --markdown`). The split is implemented but not measured.
+
+No runs recorded: this optional pilot runs on the reference machine.
