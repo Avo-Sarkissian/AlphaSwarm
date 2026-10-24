@@ -97,7 +97,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
               </div>
             ) : topInfluencers.map(r => (
               <div key={r.id} className="influencer-row">
-                <span className="infl-id" onClick={() => onInterview(r.id)}>{r.id}</span>
+                <button type="button" className="infl-id as-text" onClick={() => onInterview(r.id)}>{r.id}</button>
                 <span className="infl-bracket">{r.bracket}</span>
                 <div className="infl-bar"><span style={{width: `${r.barPct}%`}} /></div>
                 <span className="infl-num">{r.citedBy}</span>
@@ -144,7 +144,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
 
           {!hintsDismissed && (
             <div className="first-hint">
-              <span className="label" style={{color:'var(--accent)'}}>TIP</span>
+              <span className="label u-accent">TIP</span>
               <span>Each node is one of 100 agents · colour = signal · size = peers citing it · hover for citations · click to pin, then interview</span>
               <button className="btn ghost compact" onClick={() => setHintsDismissed(true)}>Got it</button>
             </div>
@@ -180,7 +180,7 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
             {connected ? (
               <span className="label live-indicator"><span className="live-dot" /> LIVE · R{round}</span>
             ) : (
-              <span className="label" style={{ color: 'var(--sell)' }}>RECONNECTING…</span>
+              <span className="label u-sell">RECONNECTING…</span>
             )}
           </div>
           <div className="panel-body">

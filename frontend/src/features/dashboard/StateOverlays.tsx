@@ -82,7 +82,7 @@ export function SeedingState({ seed, elapsedSeconds = 0 }: SeedingStateProps) {
   return (
     <div className="state-overlay">
       <div className="state-center seeding-center">
-        <div className="state-kicker label" style={{ color: 'var(--accent)' }}>
+        <div className="state-kicker label u-accent">
           SEEDING · {formatDuration(elapsedSeconds)}
         </div>
         <div className="state-headline">Preparing the swarm…</div>

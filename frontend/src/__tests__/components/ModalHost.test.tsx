@@ -125,3 +125,36 @@ describe('ModalHost', () => {
     expect(screen.queryByTestId('overlay')).toBeNull();
   });
 });
+
+describe('ModalHost dialogs', () => {
+  it.each<[ActiveModal, string, string | null]>([
+    [{ kind: 'settings' }, 'Settings', 'true'],
+    [{ kind: 'report', cycleId: CYCLE }, 'Simulation report', 'true'],
+    [{ kind: 'advisory' }, 'Portfolio advisory', 'true'],
+    [{ kind: 'dataSources' }, 'Data sources', 'true'],
+    [{ kind: 'cycles' }, 'Cycle history', 'true'],
+    [{ kind: 'interview', agentId: 'degens_01' }, 'Interview degens_01', 'true'],
+    [{ kind: 'bracket', bracket: QUANTS }, 'Quants bracket', 'true'],
+    [{ kind: 'shock' }, 'Inject a shock', null],
+  ])('%o is a dialog named "%s" (aria-modal %s)', (modal, name, ariaModal) => {
+    renderHost(modal);
+    expect(screen.getByRole('dialog', { name }).getAttribute('aria-modal')).toBe(ariaModal);
+    expect(screen.getAllByTestId('overlay')).toHaveLength(1);
+  });
+
+  it('the coming-soon notice is a named dialog', () => {
+    renderHost({ kind: 'comingSoon', feature: 'whatif' });
+    expect(screen.getByRole('dialog', { name: 'What-if Compare' }).getAttribute('aria-modal')).toBe('true');
+  });
+
+  it('closes the open overlay on Escape', () => {
+    const { onClose } = renderHost({ kind: 'settings' });
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders no empty dialog for an agent outside the roster', () => {
+    renderHost({ kind: 'interview', agentId: 'macro_07' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+});

@@ -104,12 +104,14 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   roster), `edges.ts` (curves, bracket matrix, ego network), `encodings.ts`,
   `legendItems.ts`, `caption.ts`, `Legend.tsx`, `AgentTooltip.tsx`, `InfluenceGraph.tsx`.
   No physics; see `docs/DECISIONS.md#adr-hero-graph`.
-- Shared: `components/` (`Icon`, `InlineError`, `RunConfirmModal`), `hooks/`, `lib/`
+- Shared: `components/` (`Modal`, the one dialog primitive every overlay goes through; `Icon`,
+  `InlineError`, `RunConfirmModal`), `hooks/`, `lib/`
   (pure helpers), `context/`, `api/`, `adapter/`, `types.ts`, `data.ts`.
 - Rules, enforced by `src/__tests__/invariants/structure.test.ts`: TypeScript only, no
   explicit `any`, `noUncheckedIndexedAccess`, features never import each other or `app/`,
   `viz/` never imports `app/` or `features/`,
-  modules stay under 600 lines, and the inline-style count never grows.
+  modules stay under 600 lines, the inline-style count never grows, and every icon-only button
+  has an aria-label.
 
 ## Data flow: seed → rounds → graph → web → UI
 

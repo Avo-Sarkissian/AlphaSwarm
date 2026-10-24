@@ -38,7 +38,7 @@ function SignalTrajectory({ points }: { points: TrajectoryPoint[] }) {
   const last = points.length - 1;
   return (
     <div className="itv-trajectory">
-      <div className="label" style={{ marginBottom: 10 }}>SIGNAL TRAJECTORY</div>
+      <div className="label u-mb-10">SIGNAL TRAJECTORY</div>
       <div className="itv-traj-track">
         {points.map((p, i) => {
           const color = p.signal ? signalColor(p.signal) : 'var(--bg-3)';
@@ -84,7 +84,7 @@ function CitationGraph({ agent, cited, citedBy }: CitationGraphProps) {
 
   return (
     <div className="itv-citations">
-      <div className="label" style={{ marginBottom: 10 }}>CITATION NETWORK</div>
+      <div className="label u-mb-10">CITATION NETWORK</div>
       <svg viewBox="0 0 200 160" width="100%" style={{ display: 'block' }}>
         {citedPos.map((p, i) => (
           <g key={`cited-${i}`}>
@@ -236,7 +236,7 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
       {/* header */}
       <div className="itv-head">
         <div className="itv-head-left">
-          <button className="btn ghost-btn" onClick={onClose}>
+          <button className="btn ghost-btn" onClick={onClose} aria-label="Close">
             <Icon name="close" />
           </button>
           <div className="itv-agent-id">
@@ -274,7 +274,7 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
             </>
           )}
           <div className="itv-stats">
-            <div className="label" style={{ marginBottom: 8 }}>CYCLE STATS</div>
+            <div className="label u-mb-8">CYCLE STATS</div>
             {([
               ['Cites', String(cited.length)],
               ['Cited by', String(citedBy.length)],
@@ -351,7 +351,7 @@ export function InterviewPanel({ agentId, onClose }: InterviewPanelProps) {
                     }}
                     placeholder={`Ask ${agentId} anything…`}
                     disabled={busy}
-                    autoFocus
+                    data-autofocus
                   />
                 </div>
                 <button className="btn primary" onClick={() => void handleSend()} disabled={busy || !input.trim()}>

@@ -58,9 +58,9 @@ export function ShockDrawer({ onClose }: ShockDrawerProps) {
 
   return (
     <div className="shock-drawer">
-      <div className="hflex" style={{ marginBottom: 10 }}>
+      <div className="hflex u-mb-10">
         <Icon name="bolt" size={14} />
-        <span className="label" style={{ color: 'var(--sell)' }}>{label}</span>
+        <span className="label u-sell">{label}</span>
         <div className="sp" />
         <button className="btn ghost" onClick={onClose} aria-label="Close shock drawer">
           <Icon name="close" />
@@ -71,7 +71,7 @@ export function ShockDrawer({ onClose }: ShockDrawerProps) {
           Queued for the next round: "{pending}"
         </div>
       )}
-      <div className="seed-input" style={{ marginBottom: 10 }}>
+      <div className="seed-input u-mb-10">
         <span className="prefix">⚡</span>
         <input
           value={text}

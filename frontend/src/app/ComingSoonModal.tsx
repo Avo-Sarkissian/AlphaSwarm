@@ -3,7 +3,7 @@ import { Icon } from '../components/Icon';
 
 export type ComingSoonKey = 'whatif' | 'multiseed' | 'stress' | 'brackets';
 
-const COMING_SOON_COPY: Record<ComingSoonKey, { title: string; subtitle: string; body: string }> = {
+export const COMING_SOON_COPY: Record<ComingSoonKey, { title: string; subtitle: string; body: string }> = {
   whatif: {
     title: 'What-if Compare',
     subtitle: 'COMPARE TWO SIMULATION SEEDS SIDE-BY-SIDE',
@@ -53,52 +53,50 @@ export function ComingSoonModal({
 }) {
   const copy = COMING_SOON_COPY[feature];
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-head">
-          <button className="btn ghost-btn" onClick={onClose} aria-label="Close">
-            <Icon name="close" />
-          </button>
-          <div style={{ flex: 1 }}>
-            <div style={{ color: 'var(--text)', fontSize: 15, fontWeight: 600 }}>
-              {copy.title}
-            </div>
-            <div
-              className="label"
-              style={{ marginTop: 2, color: 'var(--text-3)', letterSpacing: '0.12em' }}
-            >
-              {copy.subtitle}
-            </div>
+    <>
+      <div className="modal-head">
+        <button className="btn ghost-btn" onClick={onClose} aria-label="Close">
+          <Icon name="close" />
+        </button>
+        <div style={{ flex: 1 }}>
+          <div style={{ color: 'var(--text)', fontSize: 15, fontWeight: 600 }}>
+            {copy.title}
           </div>
-          <span
+          <div
+            className="label"
+            style={{ marginTop: 2, color: 'var(--text-3)', letterSpacing: '0.12em' }}
+          >
+            {copy.subtitle}
+          </div>
+        </div>
+        <span
+          style={{
+            padding: '3px 8px',
+            border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
+            borderRadius: 10,
+            color: 'var(--accent)',
+            fontSize: 10,
+            letterSpacing: '0.12em',
+          }}
+        >
+          COMING IN v6.x
+        </span>
+      </div>
+      <div className="modal-body">
+        {copy.body.split('\n\n').map((p, i) => (
+          <p
+            key={i}
             style={{
-              padding: '3px 8px',
-              border: '1px solid color-mix(in srgb, var(--accent) 35%, transparent)',
-              borderRadius: 10,
-              color: 'var(--accent)',
-              fontSize: 10,
-              letterSpacing: '0.12em',
+              color: 'var(--text-2)',
+              fontSize: 13,
+              lineHeight: 1.65,
+              margin: i === 0 ? '0 0 12px' : '0',
             }}
           >
-            COMING IN v6.x
-          </span>
-        </div>
-        <div className="modal-body">
-          {copy.body.split('\n\n').map((p, i) => (
-            <p
-              key={i}
-              style={{
-                color: 'var(--text-2)',
-                fontSize: 13,
-                lineHeight: 1.65,
-                margin: i === 0 ? '0 0 12px' : '0',
-              }}
-            >
-              {p}
-            </p>
-          ))}
-        </div>
+            {p}
+          </p>
+        ))}
       </div>
-    </div>
+    </>
   );
 }

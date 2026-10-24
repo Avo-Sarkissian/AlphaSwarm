@@ -13,7 +13,7 @@
 //   • base_url input only shown when provider = openai_compatible.
 //   • api_key password input shown for cloud providers; masked hint when key set.
 //   • limits (rpm/tpm) and spend_cap shown for cloud providers.
-import { useState, useEffect, useRef } from 'react';
+import { useId, useState, useEffect, useRef } from 'react';
 import { getSettings, putSettings, type SettingsView } from '../../api/settings';
 import {
   extractErrorDetail,
@@ -40,6 +40,7 @@ export function InferenceSettings({ onSaved }: InferenceSettingsProps) {
   const [allowCloudAdvisory, setAllowCloudAdvisory] = useState<boolean>(false);
 
   const [loadError, setLoadError] = useState<string | null>(null);
+  const spendCapId = useId();
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saveOk, setSaveOk] = useState(false);
@@ -196,8 +197,9 @@ export function InferenceSettings({ onSaved }: InferenceSettingsProps) {
         <>
           <div style={{ borderTop: '1px solid var(--border)', margin: '14px 0' }} />
           <div className="st-inf-row">
-            <label className="st-inf-label">Spend cap (USD)</label>
+            <label className="st-inf-label" htmlFor={spendCapId}>Spend cap (USD)</label>
             <input
+              id={spendCapId}
               type="number"
               min={0}
               step={0.01}

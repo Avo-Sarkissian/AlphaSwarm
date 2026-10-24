@@ -113,8 +113,8 @@ function ObStep0({ onNext, numRounds }: { onNext: () => void; numRounds: number 
           {ONBOARDING_PRIVACY_LINE}
         </p>
         <div className="ob-pills">
-          <div className="ob-pill"><span style={{ color: 'var(--buy)' }}>●</span> BUY</div>
-          <div className="ob-pill"><span style={{ color: 'var(--sell)' }}>●</span> SELL</div>
+          <div className="ob-pill"><span className="u-buy">●</span> BUY</div>
+          <div className="ob-pill"><span className="u-sell">●</span> SELL</div>
           <div className="ob-pill"><span style={{ color: 'var(--hold)' }}>●</span> HOLD</div>
           <div className="ob-pill-divider" />
           <div className="ob-pill">100 agents</div>
@@ -237,7 +237,6 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
         <div className="ob-seed-input">
           <span className="ob-seed-prefix label">SEED ⟶</span>
           <input
-            autoFocus
             value={seed}
             onChange={(e) => setSeed(e.target.value)}
             placeholder="e.g. Fed announces emergency rate cut…"
@@ -248,7 +247,7 @@ function ObSeedStep({ seed, setSeed, seeds, onBack, onComplete }: ObSeedStepProp
         </div>
 
         <div className="ob-seed-examples">
-          <div className="label" style={{ marginBottom: 8 }}>OR TRY ONE OF THESE</div>
+          <div className="label u-mb-8">OR TRY ONE OF THESE</div>
           {seeds.map((s) => (
             <button key={s} className="ob-example" onClick={() => setSeed(s)} disabled={pending}>
               "{s}"

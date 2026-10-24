@@ -31,7 +31,7 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
             <Icon name="close" />
           </button>
           <div className="ds-head-title">Data Sources</div>
-          <div className="label" style={{ color: 'var(--text-3)' }}>
+          <div className="label u-muted">
             LAST {audit.length} PROVIDER CALLS
           </div>
         </div>
@@ -77,7 +77,7 @@ export function DataSourcesTakeover({ onClose }: { onClose: () => void }) {
             </div>
 
             <div className="ds-detail-pane">
-              <div className="label" style={{ marginBottom: 10 }}>
+              <div className="label u-mb-10">
                 RECENT CALLS · {active ? (SOURCE_LABEL[active] ?? active) : ''}
               </div>
               <div className="ds-recent-table">

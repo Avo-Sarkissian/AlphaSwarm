@@ -160,15 +160,15 @@ function CycleRow({
   const consensus = consensusOf(c);
   return (
     <div className="ch-row">
-      <div className="ch-id mono" onClick={() => onOpenReport(c)}>
+      <button type="button" className="ch-id mono as-text" onClick={() => onOpenReport(c)}>
         {c.cycle_id}
-      </div>
+      </button>
       <div className="ch-date mono" title={c.created_at}>
         {formatCycleDate(c.created_at)}
       </div>
-      <div className="ch-seed" onClick={() => onOpenReport(c)} title={c.seed_rumor}>
+      <button type="button" className="ch-seed as-text" onClick={() => onOpenReport(c)} title={c.seed_rumor}>
         "{c.seed_rumor}"
-      </div>
+      </button>
       <div className="ch-consensus" data-signal={consensus?.signal ?? 'none'}>
         {consensus === null ? (
           <span className="ch-dash" title="Not recorded for this cycle">

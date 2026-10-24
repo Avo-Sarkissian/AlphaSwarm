@@ -46,7 +46,7 @@ export function SignalWire({ onInspect }: { onInspect?: () => void }) {
   return (
     <div className="signal-wire">
       <div className="sw-label">
-        <span className="label" style={{ color: 'var(--accent)' }}>
+        <span className="label u-accent">
           WIRE
         </span>
         {running && <span className="sw-live-dot" />}
