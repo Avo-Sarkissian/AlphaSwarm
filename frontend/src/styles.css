@@ -7,6 +7,10 @@
   --border: #1f242b;
   --border-2: #2a313a;
   --text: #d8dde4;
+  /* Aliases read by settings components; one source of truth per colour. */
+  --text-1: var(--text);
+  --accent-green: var(--buy);
+  --accent-red: var(--sell);
   --text-2: #8a93a0;
   --text-3: #7d8796;
   --accent: #ffb84d;
@@ -2383,3 +2387,14 @@ body { background: var(--bg); }
 }
 :where(button.as-row) { display: block; width: 100%; }
 button.bracket-row:hover { width: calc(100% + 28px); }
+
+/* ===== Reduced motion: no animation or transition; pending nodes stay visibly dim ===== */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  .thinking { opacity: 0.45; }
+}
