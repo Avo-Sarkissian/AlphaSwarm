@@ -842,9 +842,9 @@ commits `f5330a6` and `343669f`. Their decisions were recovered from git history
 | <a id="p38-d-03"></a>`D-03` | Headline filter: case-insensitive substring match on the entity. **Revised (Phase 7):** Google results use a case-insensitive word-boundary match; Yahoo per-ticker feeds are not filtered. | revised | ingestion/rss_provider.py (`_entity_pattern`); tests/test_rss_provider.py |
 | <a id="p38-d-04"></a>`D-04` | feedparser + httpx. | active | ingestion/rss_provider.py:6 |
 | <a id="p38-d-05"></a>`D-05` | yfinance per ticker via asyncio.to_thread + gather for error isolation. | active | ingestion/yfinance_provider.py:3; tests/integration/test_yfinance_provider_live.py:89 |
-| <a id="p38-d-06"></a>`D-06` | fast_info for price/volume; info for fundamentals. | active | ingestion/yfinance_provider.py:4; tests/integration/test_yfinance_provider_live.py:105 |
+| <a id="p38-d-06"></a>`D-06` | fast_info for price/volume; info for fundamentals. **Revised (Phase 7):** two guarded stages under one batch deadline (`asyncio.timeout`, 20 s): a failed or late `info` keeps the `fast_info` price; whatever finished is returned. | revised | ingestion/yfinance_provider.py (`_fetch_stages`); tests/test_yfinance_provider.py |
 | <a id="p38-d-07"></a>`D-07` | No semaphore: providers run once per simulation, not per agent. | active | ingestion/yfinance_provider.py:5 |
-| <a id="p38-d-09"></a>`D-09` | staleness='fresh' on success, 'fetch_failed' on any exception; no time-window logic. | active | ingestion/rss_provider.py:7; ingestion/yfinance_provider.py:6 |
+| <a id="p38-d-09"></a>`D-09` | staleness='fresh' on success, 'fetch_failed' on any exception; no time-window logic. **Revised (Phase 7):** market slices carry `as_of` (the quote's market time) and are 'stale' when older than 24 h; 'fetch_failed' only when stage 1 fails. News slices are unchanged. | revised | ingestion/yfinance_provider.py (`classify_quote`); ingestion/rss_provider.py |
 | <a id="p38-d-10"></a>`D-10` | No caching; every call fetches fresh. | active | ingestion/rss_provider.py:8,170; ingestion/yfinance_provider.py:7 |
 
 ### Phase 39: Holdings loader

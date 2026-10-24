@@ -61,6 +61,9 @@ class MarketSlice(BaseModel):
     volume: int | None = None
     fundamentals: Fundamentals | None = None
     fetched_at: datetime
+    # Market time of the quote (yfinance regularMarketTime); None when unknown.
+    # The formatter prints it so agents can tell a live quote from Friday's close.
+    as_of: datetime | None = None
     source: str
     staleness: StalenessState = "fresh"
 

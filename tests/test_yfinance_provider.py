@@ -12,13 +12,17 @@ from __future__ import annotations
 
 import inspect
 import pathlib
+import threading
+from collections.abc import Iterator
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 import pytest
+from structlog.testing import capture_logs
 
 from alphaswarm.ingestion import MarketDataProvider, MarketSlice, YFinanceMarketDataProvider
-from alphaswarm.ingestion.yfinance_provider import _decimal_or_none
+from alphaswarm.ingestion.yfinance_provider import _decimal_or_none, _quote_time, classify_quote
 
 # --------- Monkeypatch helpers ---------
 
@@ -338,3 +342,102 @@ def test_yfinance_provider_module_guards_nan_inf() -> None:
     assert "import math" in content
     assert "math.isnan" in content
     assert "math.isinf" in content
+
+
+# --------- Two guarded stages, batch deadline, as_of and staleness (p38-d-06, p38-d-09) ---------
+
+FRIDAY_CLOSE = datetime(2026, 10, 2, 20, 0, tzinfo=UTC)  # 16:00 New York
+SUNDAY = datetime(2026, 10, 4, 15, 0, tzinfo=UTC)
+FRIDAY_EVENING = datetime(2026, 10, 2, 21, 0, tzinfo=UTC)
+
+
+class _StageFastInfo:
+    last_price: float = 12.34
+    last_volume: int = 1000
+
+
+class _StagedTicker:
+    """Per-symbol behaviour: 'ok', 'info_fails', 'info_blocks', 'price_blocks'."""
+
+    behaviour: dict[str, str] = {}
+    release = threading.Event()
+
+    def __init__(self, ticker: str) -> None:
+        self._mode = self.behaviour.get(ticker, "ok")
+
+    @property
+    def fast_info(self) -> _StageFastInfo:
+        if self._mode == "price_blocks":
+            self.release.wait(5)
+        return _StageFastInfo()
+
+    @property
+    def info(self) -> dict[str, Any]:
+        if self._mode == "info_fails":
+            raise RuntimeError("401 Invalid Crumb")
+        if self._mode == "info_blocks":
+            self.release.wait(5)
+        return {
+            "trailingPE": 20.5,
+            "trailingEps": 1.25,
+            "marketCap": 1_000_000,
+            "regularMarketTime": int(FRIDAY_CLOSE.timestamp()),
+        }
+
+
+@pytest.fixture
+def staged(monkeypatch: pytest.MonkeyPatch) -> Iterator[type[_StagedTicker]]:
+    _StagedTicker.behaviour = {}
+    _StagedTicker.release = threading.Event()
+    monkeypatch.setattr("alphaswarm.ingestion.yfinance_provider.yf.Ticker", _StagedTicker)
+    yield _StagedTicker
+    _StagedTicker.release.set()
+
+
+async def test_price_survives_info_failure(staged: type[_StagedTicker]) -> None:
+    staged.behaviour = {"ZZZT": "info_fails"}
+    provider = YFinanceMarketDataProvider(clock=lambda: FRIDAY_EVENING)
+    s = (await provider.get_prices(["ZZZT"]))["ZZZT"]
+    assert s.price == Decimal("12.34") and s.volume == 1000
+    assert s.fundamentals is None and s.as_of is None
+    assert s.staleness == "fresh"
+
+
+async def test_deadline_keeps_finished_and_partial_tickers(staged: type[_StagedTicker]) -> None:
+    staged.behaviour = {"QQQX": "info_blocks", "XQZW": "price_blocks"}
+    provider = YFinanceMarketDataProvider(deadline_s=0.3, clock=lambda: FRIDAY_EVENING)
+    with capture_logs() as logs:
+        result = await provider.get_prices(["ZZZT", "QQQX", "XQZW"])
+    staged.release.set()
+    assert result["ZZZT"].fundamentals is not None and result["ZZZT"].as_of == FRIDAY_CLOSE
+    assert result["QQQX"].price == Decimal("12.34") and result["QQQX"].fundamentals is None
+    assert result["XQZW"].staleness == "fetch_failed"
+    event = next(e for e in logs if e["event"] == "market_fetch_deadline_exceeded")
+    assert (event["tickers"], event["priced"]) == (3, 2)
+    assert not {"ZZZT", "QQQX", "XQZW"} & {str(v) for v in event.values()}
+
+
+async def test_weekend_quote_is_stale(staged: type[_StagedTicker]) -> None:
+    sunday = (await YFinanceMarketDataProvider(clock=lambda: SUNDAY).get_prices(["ZZZT"]))["ZZZT"]
+    assert sunday.as_of == FRIDAY_CLOSE and sunday.staleness == "stale"
+    provider = YFinanceMarketDataProvider(clock=lambda: FRIDAY_EVENING)
+    friday = (await provider.get_prices(["ZZZT"]))["ZZZT"]
+    assert friday.staleness == "fresh"
+
+
+def test_classify_quote() -> None:
+    assert classify_quote(None, SUNDAY, stale_after_hours=24) == "fresh"
+    assert classify_quote(FRIDAY_CLOSE, SUNDAY, stale_after_hours=24) == "stale"
+    assert classify_quote(FRIDAY_CLOSE, SUNDAY, stale_after_hours=72) == "fresh"
+
+
+def test_quote_time_ignores_garbage() -> None:
+    for value in (None, "1696276800", float("nan"), True, 10**20):
+        assert _quote_time(value) is None
+    assert _quote_time(int(FRIDAY_CLOSE.timestamp())) == FRIDAY_CLOSE
+
+
+@pytest.mark.parametrize("kwargs", [{"deadline_s": 0}, {"stale_after_hours": -1}])
+def test_bad_windows_are_rejected(kwargs: dict[str, float]) -> None:
+    with pytest.raises(ValueError):
+        YFinanceMarketDataProvider(**kwargs)
