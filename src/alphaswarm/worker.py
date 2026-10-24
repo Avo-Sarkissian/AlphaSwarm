@@ -180,6 +180,7 @@ class AgentWorker:
         market_context: str | None = None,
         *,
         own_prior: str | None = None,
+        seed: int | None = None,
     ) -> AgentDecision:
         """Run inference for this agent and return a parsed AgentDecision.
 
@@ -200,8 +201,10 @@ class AgentWorker:
                 which keeps the Phase 40 D-04 ordering (market before peer).
             own_prior: This agent's previous decision as one sanitized line
                 ("Your Round N position: ..."). It is model output, so it goes into
-                the user message before the rumor, never into a system message
-                (docs/DECISIONS.md#adr-diverse-peer-context).
+                the user message after any peer block and before the rumor, never
+                into a system message (docs/DECISIONS.md#adr-diverse-peer-context).
+            seed: Sampling seed forwarded to the provider (None = provider default;
+                docs/DECISIONS.md#adr-run-manifest).
 
         Returns:
             AgentDecision -- always returns, never raises (parse fallback).
@@ -244,6 +247,7 @@ class AgentWorker:
                 # Without this, every agent ran at the Modelfile's temperature
                 # and the bracket temperature design was dead config.
                 max_tokens=WORKER_DECISION_MAX_TOKENS,
+                seed=seed,
             )
         if self._telemetry is not None:
             self._telemetry.record(result, latency_ms=(time.perf_counter() - started) * 1000)

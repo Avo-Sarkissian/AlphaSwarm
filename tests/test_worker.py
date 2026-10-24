@@ -674,3 +674,36 @@ async def test_infer_caps_the_reply(sample_persona: WorkerPersonaConfig) -> None
     provider = _fake_provider()
     await AgentWorker(sample_persona, provider).infer(user_message="ZZZT")
     assert provider.calls[0]["max_tokens"] == WORKER_DECISION_MAX_TOKENS == 400
+
+
+# ---------------------------------------------------------------------------
+# Own prior and seed (docs/DECISIONS.md#adr-run-manifest)
+# ---------------------------------------------------------------------------
+
+
+async def test_own_prior_sits_between_the_peer_block_and_the_rumor(
+    sample_persona: WorkerPersonaConfig,
+) -> None:
+    provider = _fake_provider()
+    await AgentWorker(sample_persona, provider).infer(
+        user_message=_FT_RUMOR,
+        peer_context='Peer Decisions (Round 1):\n1. [degens_01|degens] SELL (conf: 0.60) "overpriced"',
+        market_context="ZZZT Holdings last 12.34 (fictional)",
+        own_prior=_FT_OWN,
+    )
+    messages = provider.calls[0]["messages"]
+    user = messages[-1]["content"]
+
+    assert messages[-1]["role"] == "user"
+    assert user.index(UNTRUSTED_DATA_CLOSE) < user.index(PEER_FENCE_CLOSE)
+    assert user.index(PEER_FENCE_CLOSE) < user.index(_FT_OWN) < user.index(_FT_RUMOR)
+    assert all(_FT_OWN not in m["content"] for m in messages if m["role"] == "system")
+
+
+async def test_seed_reaches_the_provider(sample_persona: WorkerPersonaConfig) -> None:
+    provider = _fake_provider(n=2)
+    worker = AgentWorker(sample_persona, provider)
+    await worker.infer(user_message=_FT_RUMOR, seed=1234)
+    await worker.infer(user_message=_FT_RUMOR)
+
+    assert [c["seed"] for c in provider.calls] == [1234, None]
