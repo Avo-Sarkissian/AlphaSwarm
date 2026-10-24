@@ -98,6 +98,7 @@ ROWS_MODULE_NAMES = (
     "BracketRoundRow",
     "CompletedCycleRow",
     "ConsensusSummaryRow",
+    "CycleExportRows",
     "EntityImpactRow",
     "EvidenceEntityRow",
     "FinalDecisionRow",

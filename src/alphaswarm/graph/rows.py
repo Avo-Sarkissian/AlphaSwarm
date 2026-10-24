@@ -25,9 +25,15 @@ __all__ = [
     "CitationPairRow",
     "CompletedCycleRow",
     "ConsensusSummaryRow",
+    "CycleCitationRow",
+    "CycleExportRows",
     "CycleSignalRow",
     "CycleStatus",
     "EntityImpactRow",
+    "ExportAgentRow",
+    "ExportCycleRow",
+    "ExportDecisionRow",
+    "ExportShockRow",
     "InfluenceEdgeRow",
     "InfluenceLeaderRow",
     "KeyDissenterRow",
@@ -165,6 +171,68 @@ class RoundCitationRow(TypedDict):
     source_id: str
     target_id: str
     cited_signal: str
+
+
+class ExportCycleRow(TypedDict):
+    """Cycle metadata for an export; metrics are the scalar non-metadata properties."""
+
+    cycle_id: str
+    created_at: str
+    seed_rumor: str
+    overall_sentiment: float | None
+    num_rounds: int | None
+    run_manifest_json: str | None
+    metrics: dict[str, float | int | str | bool]
+
+
+class ExportAgentRow(TypedDict):
+    """An agent that made at least one decision in the cycle (archival agents included)."""
+
+    agent_id: str
+    name: str
+    bracket: str
+    influence_weight_base: float
+    temperature: float
+
+
+class ExportDecisionRow(TypedDict):
+    """One stored decision; provenance fields default when the cycle predates them."""
+
+    round_num: int
+    agent_id: str
+    signal: str
+    confidence: float
+    sentiment: float
+    rationale: str
+    cited_agent_ids: list[str]
+    peer_ids: list[str]
+    control: bool
+
+
+class CycleCitationRow(TypedDict):
+    """A RoundCitationRow with its round, for whole-cycle reads."""
+
+    round_num: int
+    source_id: str
+    target_id: str
+    cited_signal: str
+
+
+class ExportShockRow(TypedDict):
+    """One shock and the round it was applied before."""
+
+    text: str
+    injected_before_round: int
+
+
+class CycleExportRows(TypedDict):
+    """Everything a CycleExport needs, read in one transaction (docs/DECISIONS.md#adr-cycle-export)."""
+
+    cycle: ExportCycleRow | None
+    agents: list[ExportAgentRow]
+    decisions: list[ExportDecisionRow]
+    citations: list[CycleCitationRow]
+    shocks: list[ExportShockRow]
 
 
 class CompletedCycleRow(TypedDict):

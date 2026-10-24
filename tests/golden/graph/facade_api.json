@@ -13,6 +13,7 @@
   "read_completed_cycles": "(self, limit: 'int' = 20, *, before: 'datetime | None' = None) -> 'list[CompletedCycleRow]'",
   "read_consensus_summary": "(self, cycle_id: 'str') -> 'ConsensusSummaryRow'",
   "read_cycle_entities": "(self, cycle_id: 'str') -> 'list[EntityRef]'",
+  "read_cycle_export_rows": "(self, cycle_id: 'str') -> 'CycleExportRows'",
   "read_cycle_seed": "(self, cycle_id: 'str') -> 'str | None'",
   "read_cycle_status": "(self, cycle_id: 'str') -> 'CycleStatus | None'",
   "read_decision_narrative": "(self, cycle_id: 'str', agent_id: 'str') -> 'str | None'",

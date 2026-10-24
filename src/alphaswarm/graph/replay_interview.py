@@ -21,12 +21,19 @@ from alphaswarm.errors import AgentNotFoundError
 from alphaswarm.graph.rows import (
     _COMPLETE_ONLY,
     _EFFECTIVE_STATUS,
+    UNKNOWN_SIGNAL,
     AgentDecisionRow,
     AgentInterviewRows,
     BracketRoundRow,
     CompletedCycleRow,
+    CycleCitationRow,
+    CycleExportRows,
     CycleSignalRow,
     CycleStatus,
+    ExportAgentRow,
+    ExportCycleRow,
+    ExportDecisionRow,
+    ExportShockRow,
     RationaleRoundRow,
     TxRunner,
 )
@@ -631,3 +638,160 @@ def _decode_modifiers(raw: object) -> dict[BracketType, str] | None:
         return None
     known = {b.value for b in BracketType}
     return {BracketType(k): v for k, v in data.items() if k in known and isinstance(v, str)}
+
+
+#: Cycle properties that are metadata, not run metrics (docs/DECISIONS.md#adr-cycle-metrics).
+_CYCLE_NON_METRIC_KEYS: Final = frozenset(
+    {
+        "cycle_id",
+        "seed_rumor",
+        "created_at",
+        "overall_sentiment",
+        "status",
+        "error_code",
+        "modifiers_json",
+        "prompt_template_hash",
+        "run_manifest_json",
+        "sim_seed",
+        "experiment_tag",
+        "metrics_recorded_at",
+    }
+)
+
+
+def _export_iso(value: object) -> str:
+    """neo4j DateTime -> ISO-8601 with microseconds (pydantic parses at most six digits)."""
+    to_native = getattr(value, "to_native", None)
+    native = to_native() if callable(to_native) else value
+    if isinstance(native, datetime):
+        return native.isoformat()
+    return "" if native is None else str(native)
+
+
+async def read_cycle_export_rows(read: TxRunner, cycle_id: str) -> CycleExportRows:
+    """Every row a portable export needs, from one read transaction
+    (docs/DECISIONS.md#adr-cycle-export).
+
+    ``cycle`` is None when no Cycle has this id. Citations exclude Round 1 and
+    self-citations and carry the cited agent's previous-round signal.
+    Peer prompt text (RationaleEpisode.peer_context_received) is never read.
+    """
+    rows = await read(_read_cycle_export_rows_tx, cycle_id, op="read_cycle_export_rows")
+    log.debug(
+        "cycle_export_rows_read",
+        cycle_id=cycle_id,
+        decisions=len(rows["decisions"]),
+        citations=len(rows["citations"]),
+    )
+    return rows
+
+
+async def _read_cycle_export_rows_tx(tx: AsyncManagedTransaction, cycle_id: str) -> CycleExportRows:
+    cycle_result = await tx.run(
+        "MATCH (c:Cycle {cycle_id: $cycle_id}) RETURN properties(c) AS props", cycle_id=cycle_id
+    )
+    record = await cycle_result.single()
+    if record is None:
+        return CycleExportRows(cycle=None, agents=[], decisions=[], citations=[], shocks=[])
+    props: dict[str, Any] = dict(record["props"])
+    sentiment = props.get("overall_sentiment")
+    num_rounds = props.get("num_rounds")
+    manifest = props.get("run_manifest_json")
+    cycle = ExportCycleRow(
+        cycle_id=str(props["cycle_id"]),
+        created_at=_export_iso(props.get("created_at")),
+        seed_rumor=str(props.get("seed_rumor") or ""),
+        overall_sentiment=float(sentiment) if sentiment is not None else None,
+        num_rounds=int(num_rounds) if num_rounds is not None else None,
+        run_manifest_json=str(manifest) if manifest is not None else None,
+        metrics={
+            key: value
+            for key, value in sorted(props.items())
+            if key not in _CYCLE_NON_METRIC_KEYS and isinstance(value, bool | int | float | str)
+        },
+    )
+
+    agent_result = await tx.run(
+        """
+        MATCH (a:Agent)-[:MADE]->(:Decision {cycle_id: $cycle_id})
+        RETURN DISTINCT a.id AS agent_id, coalesce(a.name, a.id) AS name,
+               coalesce(a.bracket, 'unknown') AS bracket,
+               coalesce(a.influence_weight_base, 0.0) AS influence_weight_base,
+               coalesce(a.temperature, 0.0) AS temperature
+        ORDER BY agent_id
+        """,
+        cycle_id=cycle_id,
+    )
+    agents = [
+        ExportAgentRow(
+            agent_id=str(r["agent_id"]),
+            name=str(r["name"]),
+            bracket=str(r["bracket"]),
+            influence_weight_base=float(r["influence_weight_base"]),
+            temperature=float(r["temperature"]),
+        )
+        async for r in agent_result
+    ]
+
+    decision_result = await tx.run(
+        """
+        MATCH (a:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})
+        RETURN d.round AS round_num, a.id AS agent_id, toLower(d.signal) AS signal,
+               d.confidence AS confidence, d.sentiment AS sentiment, d.rationale AS rationale,
+               [(d)-[:CITED]->(t:Agent) | t.id] AS cited_agent_ids,
+               d.peer_ids AS peer_ids, d.control AS control
+        ORDER BY round_num, agent_id
+        """,
+        cycle_id=cycle_id,
+    )
+    decisions = [
+        ExportDecisionRow(
+            round_num=int(r["round_num"]),
+            agent_id=str(r["agent_id"]),
+            signal=str(r["signal"]),
+            confidence=float(r["confidence"] or 0.0),
+            sentiment=float(r["sentiment"] or 0.0),
+            rationale=str(r["rationale"] or ""),
+            cited_agent_ids=[str(x) for x in r["cited_agent_ids"]],
+            peer_ids=[str(x) for x in (r["peer_ids"] or [])],
+            control=bool(r["control"]) if r["control"] is not None else False,
+        )
+        async for r in decision_result
+    ]
+
+    citation_result = await tx.run(
+        """
+        MATCH (author:Agent)-[:MADE]->(d:Decision {cycle_id: $cycle_id})-[:CITED]->(cited:Agent)
+        WHERE d.round >= 2 AND author.id <> cited.id
+        WITH DISTINCT d.round AS round_num, author.id AS source_id, cited
+        OPTIONAL MATCH (cited)-[:MADE]->(prev:Decision {cycle_id: $cycle_id})
+        WHERE prev.round = round_num - 1
+        WITH round_num, source_id, cited, head(collect(toLower(prev.signal))) AS cited_signal
+        RETURN round_num, source_id, cited.id AS target_id, cited_signal
+        ORDER BY round_num, source_id, target_id
+        """,
+        cycle_id=cycle_id,
+    )
+    citations = [
+        CycleCitationRow(
+            round_num=int(r["round_num"]),
+            source_id=str(r["source_id"]),
+            target_id=str(r["target_id"]),
+            cited_signal=str(r["cited_signal"]) if r["cited_signal"] is not None else UNKNOWN_SIGNAL,
+        )
+        async for r in citation_result
+    ]
+
+    shock_result = await tx.run(
+        """
+        MATCH (:Cycle {cycle_id: $cycle_id})-[:HAS_SHOCK]->(se:ShockEvent)
+        RETURN se.shock_text AS text, se.injected_before_round AS injected_before_round
+        ORDER BY injected_before_round, se.created_at
+        """,
+        cycle_id=cycle_id,
+    )
+    shocks = [
+        ExportShockRow(text=str(r["text"]), injected_before_round=int(r["injected_before_round"]))
+        async for r in shock_result
+    ]
+    return CycleExportRows(cycle=cycle, agents=agents, decisions=decisions, citations=citations, shocks=shocks)

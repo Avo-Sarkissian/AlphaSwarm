@@ -36,6 +36,7 @@ if TYPE_CHECKING:
         BracketRoundRow,
         CompletedCycleRow,
         ConsensusSummaryRow,
+        CycleExportRows,
         CycleStatus,
         EntityImpactRow,
         FinalDecisionRow,
@@ -312,3 +313,6 @@ class GraphStateManager:
 
     async def read_cycle_entities(self, cycle_id: str) -> list[EntityRef]:
         return await replay_interview.read_cycle_entities(self._read, cycle_id)
+
+    async def read_cycle_export_rows(self, cycle_id: str) -> CycleExportRows:
+        return await replay_interview.read_cycle_export_rows(self._read, cycle_id)
