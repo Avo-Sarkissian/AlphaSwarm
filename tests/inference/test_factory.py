@@ -332,6 +332,21 @@ class TestBuildControllerLocal:
 
 
 class TestBuildControllerCloud:
+    def test_tpm_reservation_comes_from_the_limits(self) -> None:
+        cfg = InferenceConfig(
+            orchestrator=_ollama_role(),
+            worker=_anthropic_role(),
+            limits={ProviderType.ANTHROPIC: ProviderLimits(tokens_per_min=100_000, avg_tokens_per_call=900)},
+        )
+        ctrl = build_controller(cfg, _governor_settings())
+        assert isinstance(ctrl, RateLimitController)
+        assert ctrl._avg_tokens_per_call == 900
+
+    def test_tpm_reservation_defaults_to_1500(self) -> None:
+        cfg = InferenceConfig(orchestrator=_ollama_role(), worker=_anthropic_role())
+        ctrl = build_controller(cfg, _governor_settings())
+        assert ctrl._avg_tokens_per_call == 1500  # type: ignore[attr-defined]
+
     def test_anthropic_worker_returns_rate_limit_controller(self) -> None:
         cfg = InferenceConfig(
             orchestrator=_ollama_role(),

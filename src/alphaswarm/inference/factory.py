@@ -422,6 +422,7 @@ def build_controller(
         max_in_flight=limits.max_in_flight,
         requests_per_min=limits.requests_per_min,
         tokens_per_min=limits.tokens_per_min,
+        avg_tokens_per_call=limits.avg_tokens_per_call,
     )
 
 
