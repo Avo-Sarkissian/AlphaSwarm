@@ -8,7 +8,7 @@
   --border-2: #2a313a;
   --text: #d8dde4;
   --text-2: #8a93a0;
-  --text-3: #565f6c;
+  --text-3: #7d8796;
   --accent: #ffb84d;
   --accent-2: #6aa9ff;
   --accent-hover: #ffc870;
@@ -21,6 +21,8 @@
   --edge: #8a93a0;
   --edge-in: #6aa9ff;
   --edge-out: #ffb84d;
+  /* Lightest canvas colour (centre of .canvas-wrap's gradient); contrast.test.ts measures against it. */
+  --canvas-center: #0e1116;
 }
 
 *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
@@ -224,7 +226,7 @@ body { background: var(--bg); }
 .cite:hover { border-color: var(--accent); color: var(--accent); }
 
 /* ---------- Center canvas ---------- */
-.canvas-wrap { position: relative; flex: 1; overflow: hidden; min-height: 0; background: radial-gradient(ellipse at center, #0e1116 0%, #0b0d10 100%); }
+.canvas-wrap { position: relative; flex: 1; overflow: hidden; min-height: 0; background: radial-gradient(ellipse at center, var(--canvas-center) 0%, var(--bg) 100%); }
 
 .canvas-topstrip {
   display: flex; align-items: center; gap: 14px;
