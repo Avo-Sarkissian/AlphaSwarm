@@ -1,62 +1,53 @@
-// src/api/edges.ts
-// Wraps GET /api/edges/{cycle_id}?round=N; the only caller is hooks/useCycleEdges.ts.
-// Round r's edges are written right after round r ends, so they exist during the live run
-// from round 2 on (the frame's edges_version says when). Returns empty array on 404/503.
-//
-// codex MEDIUM-7 — verified semantics + envelope (2026-05-09):
-//   Backend: src/alphaswarm/web/routes/edges.py returns EdgesResponse {edges: EdgeItem[]} (NOT flat array).
-//   Backend: src/alphaswarm/graph.py:942 Cypher writes (author)-[:INFLUENCED_BY]->(cited).
-//   Therefore source_id = the citing agent (author), target_id = the cited agent (being-cited).
-//
-//   Convenience accessors (USE THESE in components — do not infer direction at the call site):
-//     - For agent A: agents A CITED        → edges.filter(e => e.source_id === A).map(e => e.target_id)
-//     - For agent A: agents WHO CITED A    → edges.filter(e => e.target_id === A).map(e => e.source_id)
-//   "in-degree" / "out-degree" naming is ambiguous when read against a relationship called
-//   INFLUENCED_BY (the arrow direction is opposite from the colloquial "X influences Y"
-//   intuition). Use the cited / cited-by accessors to avoid bugs.
-
+// Influence edges of one round, from GET /api/cycles/{id}/citations?round=N.
+// Direction: source_id is the CITING agent, target_id the CITED agent
+// (docs/DECISIONS.md#adr-neo4j-schema). cited_signal is what the citing agent
+// saw: the cited agent's signal in the previous round. Every citation weighs 1;
+// an agent's influence is its in-degree (node size), not an edge weight.
+// The only caller is hooks/useCycleEdges.ts.
 import { apiFetch, ApiError } from './client';
+import { toWireSignal } from '../lib/wireSignal';
+import type { WireSignal } from '../types';
 
-/**
- * INFLUENCED_BY edge between two agents during a given cycle/round.
- *
- * Direction semantic (verified against src/alphaswarm/graph.py:942-974):
- *   `source_id`: the CITING agent (author of the decision that contained the citation)
- *   `target_id`: the CITED agent (the agent whose post was referenced)
- *
- * The Neo4j relationship is `(source)-[:INFLUENCED_BY]->(target)` — read as
- * "source was influenced by target" (i.e., source cited target).
- */
 export interface Edge {
-  /** Agent ID of the citing agent (author of the decision). */
+  /** The citing agent. */
   source_id: string;
-  /** Agent ID of the cited agent (being referenced / influencing). */
+  /** The cited agent. */
   target_id: string;
-  /** Edge weight (typically normalized citations / total_agents). */
   weight: number;
+  /** The cited agent's previous-round signal; absent when unknown. */
+  cited_signal?: WireSignal;
 }
 
-/** Backend response envelope per src/alphaswarm/web/routes/edges.py:22-25. */
-interface EdgesResponse {
-  edges: Edge[];
+interface RoundCitation {
+  source_id: string;
+  target_id: string;
+  cited_signal: string;
 }
 
-/**
- * Fetch INFLUENCED_BY edges for a cycle and round.
- * @returns Edge[] (extracted from `{edges:[...]}` envelope). 404 / 503 → empty array.
- *
- * USAGE: only useCycleEdges calls this (one cached loader):
- *   const edges = await fetchEdges(cycleId, round);  // cycleId: the frame's uuid
- *   // For agent A (e.g., 'Q-03'):
- *   const cited = edges.filter(e => e.source_id === 'Q-03').map(e => e.target_id);
- *   const citedBy = edges.filter(e => e.target_id === 'Q-03').map(e => e.source_id);
- */
+interface RoundCitationsResponse {
+  cycle_id: string;
+  round_num: number;
+  citations: RoundCitation[];
+}
+
+function citationToEdge(c: RoundCitation): Edge {
+  const seen = toWireSignal(c.cited_signal);
+  return {
+    source_id: c.source_id,
+    target_id: c.target_id,
+    weight: 1,
+    ...(seen !== undefined ? { cited_signal: seen } : {}),
+  };
+}
+
+/** One round's citations as edges. 404 (no such cycle) and 503 (Neo4j down) mean no edges. */
 export async function fetchEdges(cycleId: string, round: number): Promise<Edge[]> {
+  const params = new URLSearchParams({ round: String(round) });
   try {
-    const resp = await apiFetch<EdgesResponse>(
-      `/api/edges/${encodeURIComponent(cycleId)}?round=${encodeURIComponent(String(round))}`
+    const body = await apiFetch<RoundCitationsResponse>(
+      `/api/cycles/${encodeURIComponent(cycleId)}/citations?${params.toString()}`,
     );
-    return resp.edges ?? [];
+    return (body.citations ?? []).map(citationToEdge);
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 503)) return [];
     throw e;
