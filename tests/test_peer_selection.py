@@ -312,7 +312,7 @@ class TestPeerAndProvenanceMetrics:
         assert metrics["peer_limit"] == 12
         assert metrics["peer_min_brackets"] == 5
         assert metrics["peer_bracket_cap"] == 2
-        assert metrics["peer_seed_source"] == "cycle_id"
+        assert metrics["peer_seed_source"] == "sim_seed"
         assert metrics["peer_budget_chars"] == 6000
         assert metrics["peer_personal_boost"] == 0.05
 

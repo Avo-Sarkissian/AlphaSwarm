@@ -39,6 +39,7 @@ if TYPE_CHECKING:
     from alphaswarm.inference.provider import InferenceProvider
     from alphaswarm.ingestion.providers import MarketDataProvider, NewsProvider
     from alphaswarm.ingestion.types import ContextPacket
+    from alphaswarm.manifest import RunProvenance
     from alphaswarm.settings import AppSettings, SimulationSettings
     from alphaswarm.state import StateSink
     from alphaswarm.types import AgentDecision, AgentPersona, BracketConfig
@@ -294,6 +295,9 @@ class SimulationDeps:
     market: MarketDataProvider | None = None
     news: NewsProvider | None = None
     context_fixture: ContextPacket | None = None
+    # Exact provider types and Ollama digests from the composition root; None
+    # falls back to the provider protocol (docs/DECISIONS.md#adr-run-manifest).
+    provenance: RunProvenance | None = None
 
 
 @dataclasses.dataclass(frozen=True)
@@ -321,7 +325,9 @@ class RoundContext:
     personas: tuple[AgentPersona, ...]
     brackets: tuple[BracketConfig, ...]
     rumor: str
-    market_context: str | None  # fenced block for round 1 (docs/DECISIONS.md#adr-market-context)
+    market_context: (
+        str | None
+    )  # fenced block for rounds 1..market_context_rounds (docs/DECISIONS.md#adr-market-context)
     entities: tuple[EntityRef, ...]
     run_seed: str
     on_round_complete: OnRoundComplete = None

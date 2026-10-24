@@ -201,12 +201,12 @@ def test_header_names_the_effective_peer_knobs(peer_exposure: ModuleType) -> Non
             "peer_min_brackets": 4,
             "peer_personal_boost": 0.3,
             "peer_budget_chars": 4000,
-            "peer_seed_source": "cycle_id",
+            "peer_seed_source": "sim_seed",
         },
     )
 
     assert header.rstrip("\n").split("\n")[-1] == (
-        "peers: limit=10 min_brackets=4 bracket_cap=- personal_boost=0.3 budget_chars=4000 seed_source=cycle_id"
+        "peers: limit=10 min_brackets=4 bracket_cap=- personal_boost=0.3 budget_chars=4000 seed_source=sim_seed"
     )
     assert header.endswith("\n")  # print() adds the blank line before the first table
 

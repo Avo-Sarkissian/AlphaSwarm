@@ -28,7 +28,7 @@ async def test_write_cycle_metrics_round_trips_str_and_bool(
         "metrics_version": 1,
         "peer_selection_version": 2,
         "peer_personal_boost": 0.3,
-        "peer_seed_source": "cycle_id",
+        "peer_seed_source": "sim_seed",
         "worker_provider": "ollama",
         "git_sha": "0" * 40,
         "git_dirty": False,
