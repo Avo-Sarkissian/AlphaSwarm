@@ -1,5 +1,5 @@
 // Dashboard grid: brackets and influencers, the agent canvas with KPIs, the rationale feed.
-import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState } from 'react';
 import { Icon } from '../../components/Icon';
 import { useAgents } from '../../context/AgentsContext';
 import { useConnection } from '../../context/ConnectionContext';
@@ -9,25 +9,14 @@ import { useTelemetry } from '../../context/TelemetryContext';
 import { useRound, useRounds } from '../../hooks/useRounds';
 import { useSampleHistory } from '../../hooks/useSampleHistory';
 import { lifecycleOf } from '../../lib/lifecycle';
-import type { AgentView } from '../../types';
-import { GraphPane } from './GraphPane';
+import { DEFAULT_ALL_EDGES, InfluenceGraph } from '../../viz/InfluenceGraph';
+import type { GraphLayout, Reserve } from '../../viz/layout';
 import { BracketList, ConsensusRing, KpiStrip, RationaleFeed, type BracketRow } from './panels';
 import { IdleState, SeedingState } from './StateOverlays';
 import { useBracketRows, useFeedRows, useTopInfluencers } from './useDashboardData';
-import type { VizLayout } from './vizLayout';
 
-function Legend() {
-  return (
-    <div className="legend">
-      <div className="legend-row"><span className="chip" style={{background:'var(--buy)'}} /> BUY</div>
-      <div className="legend-row"><span className="chip" style={{background:'var(--sell)'}} /> SELL</div>
-      <div className="legend-row"><span className="chip" style={{background:'var(--hold)'}} /> HOLD</div>
-      <div className="legend-divider" />
-      <div className="legend-row"><span className="chip-ring" /> Flipped since R1</div>
-      <div className="legend-row"><span className="chip-line" /> Influence edge</div>
-    </div>
-  );
-}
+/** The consensus ring covers the canvas's top-right corner (120 px at an 18 px offset). */
+const GRAPH_RESERVE: readonly Reserve[] = [{ corner: 'top-right', w: 150, h: 150 }];
 
 /**
  * A stable function that always calls the latest `fn`, so a memoized child does
@@ -52,13 +41,10 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
   const { agents } = useAgents();
   const { connected } = useConnection();
   const tel = useTelemetry();
-  const lifecycle = lifecycleOf(useFrameMeta());
-  const { edges } = useEdgesCtx();
-  // Viz still takes [citing, cited] tuples; every other panel reads `edges`.
-  const edgePairs = useMemo<Array<[string, string]>>(
-    () => edges.map((e) => [e.source_id, e.target_id]),
-    [edges],
-  );
+  const meta = useFrameMeta();
+  const lifecycle = lifecycleOf(meta);
+  const { roundNum } = meta;
+  const { edges, target, status } = useEdgesCtx();
   const tps = tel.telemetry.tps;
   const tpsHistory = useSampleHistory(tps, tel.ts);
   const memMb = tel.telemetry.memMb;
@@ -76,9 +62,10 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
   const topInfluencers = useTopInfluencers();
   const hasEdges = edges.length > 0;
 
-  const [layout, setLayout] = useState<VizLayout>('force');
+  const [layout, setLayout] = useState<GraphLayout>('clusters');
+  const [allEdges, setAllEdges] = useState(DEFAULT_ALL_EDGES);
+  const interviewFromGraph = useLatestCallback(onInterview);
   const [hintsDismissed, setHintsDismissed] = useState(false);
-  const openAgent = useLatestCallback((agent: AgentView) => onInterview(agent.id));
   const interview = useLatestCallback((agentId: string) => onInterview(agentId));
   const openBracket = useLatestCallback((row: BracketRow) => onOpenBracket(row));
 
@@ -127,25 +114,38 @@ export function Dashboard({ seed, onInterview, onOpenBracket, onShowCycles }: Da
           <div className="layout-tabs">
             <span className="label" style={{marginRight:6}}>LAYOUT</span>
             {([
-              { k: 'force', icon: 'graph', label: 'Force' },
+              { k: 'clusters', icon: 'graph', label: 'Clusters' },
               { k: 'radial', icon: 'radial', label: 'Radial' },
               { k: 'grid', icon: 'grid', label: 'Grid' },
             ] as const).map(l => (
-              <button key={l.k} className="layout-btn" data-active={layout === l.k}
-                onClick={() => setLayout(l.k)} title={l.label}><Icon name={l.icon} /></button>
+              <button key={l.k} type="button" className="layout-btn" data-active={layout === l.k}
+                aria-pressed={layout === l.k} aria-label={l.label} title={l.label}
+                onClick={() => setLayout(l.k)}><Icon name={l.icon} /></button>
             ))}
+            <button type="button" className="layout-btn edges-toggle" aria-pressed={allEdges}
+              disabled={layout === 'grid'} title="Show every citation instead of bracket ribbons"
+              onClick={() => setAllEdges((v) => !v)}>All edges</button>
           </div>
         </div>
 
         <div className="canvas-wrap">
-          <GraphPane agents={agents} edges={edgePairs} layout={layout} onAgentClick={openAgent} />
+          <InfluenceGraph
+            agents={agents}
+            edges={edges}
+            edgesRound={target?.round ?? null}
+            edgesLoading={status === 'loading'}
+            roundNum={roundNum}
+            layout={layout}
+            allEdges={allEdges}
+            reserve={GRAPH_RESERVE}
+            onInterview={interviewFromGraph}
+          />
           <ConsensusRing agents={agents} />
-          <Legend />
 
           {!hintsDismissed && (
             <div className="first-hint">
               <span className="label" style={{color:'var(--accent)'}}>TIP</span>
-              <span>Each node is one of 100 agents · color = signal · hover for detail · click to interview</span>
+              <span>Each node is one of 100 agents · colour = signal · size = peers citing it · hover for citations · click to pin, then interview</span>
               <button className="btn ghost compact" onClick={() => setHintsDismissed(true)}>Got it</button>
             </div>
           )}

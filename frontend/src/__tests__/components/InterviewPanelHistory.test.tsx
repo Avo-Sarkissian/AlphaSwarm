@@ -81,9 +81,11 @@ describe('dashboard interview flag', () => {
       raw: wsSnapshot,
       frame: { ...COMPLETE, phase: 'round_2', roundNum: 2, agents: [AGENT('buy', 0.8)], rationales: [rationale] },
     });
-    const node = container.querySelector('circle.node');
+    // A graph click pins the agent; its card's Interview button is the graph entry point.
+    const node = container.querySelector('[data-agent="quants_01"]');
     expect(node).not.toBeNull();
     fireEvent.click(node!);
+    fireEvent.click(screen.getByRole('button', { name: 'Interview quants_01 →' }));
     fireEvent.click(at(screen.getAllByText('quants_01', { selector: '.rationale-agent' }), 0));
     await waitFor(() => expect(document.querySelectorAll('.itv-takeover')).toHaveLength(1));
   });

@@ -41,9 +41,9 @@ vi.mock('../../features/wire/SignalWire', () => ({ SignalWire: () => null }));
 vi.mock('../../features/wire/DataSourcesTakeover', () => ({ DataSourcesTakeover: () => null }));
 vi.mock('../../features/dashboard/ModelStatus', () => ({ ModelStatus: () => null }));
 vi.mock('../../features/advisory/AdvisoryPanel', () => ({ AdvisoryPanel: () => null }));
-vi.mock('../../features/dashboard/Viz', async () => {
+vi.mock('../../viz/InfluenceGraph', async () => {
   const { createElement } = await import('react');
-  return { Viz: () => createElement('svg', { 'data-testid': 'viz' }) };
+  return { DEFAULT_ALL_EDGES: false, InfluenceGraph: () => createElement('svg', { 'data-testid': 'viz' }) };
 });
 vi.mock('../../features/settings/Settings', async () => {
   const { createElement } = await import('react');

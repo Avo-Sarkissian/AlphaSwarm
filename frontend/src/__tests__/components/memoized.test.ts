@@ -2,9 +2,8 @@
 // Dashboard pieces that receive frame data are React.memo components, so an
 // unchanged slice skips their render (docs/DECISIONS.md#adr-frontend-quant-terminal).
 import { describe, expect, it } from 'vitest';
-import { GraphPane } from '../../features/dashboard/GraphPane';
 import { BracketList, ConsensusRing, KpiStrip, RationaleFeed } from '../../features/dashboard/panels';
-import { Viz } from '../../features/dashboard/Viz';
+import { InfluenceGraph } from '../../viz/InfluenceGraph';
 
 const MEMO = Symbol.for('react.memo');
 
@@ -18,8 +17,7 @@ function isMemo(component: unknown): boolean {
 
 describe('memoized dashboard components', () => {
   it.each([
-    ['Viz', Viz],
-    ['GraphPane', GraphPane],
+    ['InfluenceGraph', InfluenceGraph],
     ['BracketList', BracketList],
     ['RationaleFeed', RationaleFeed],
     ['KpiStrip', KpiStrip],
