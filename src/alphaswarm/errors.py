@@ -82,6 +82,25 @@ class AuthError(InferenceError):
     """
 
 
+# ---------------------------------------------------------------------------
+# HTTP status classes shared by every backend (docs/DECISIONS.md#adr-cloud-retry).
+# Kept here rather than in inference/retry.py so ollama_client can use it without
+# an ollama_client -> inference import (inference.ollama_provider already imports
+# ollama_client, and the acyclic-siblings contract forbids the cycle).
+# ---------------------------------------------------------------------------
+
+RETRYABLE_HTTP_STATUSES: Final[frozenset[int]] = frozenset({408, 409, 429})
+
+
+def is_permanent_http_status(status: int) -> bool:
+    """A 4xx that fails the same way on every retry (400, 401, 403, 404, 422, ...).
+
+    408, 409 and 429 are transient. Unknown statuses (below 400, such as the
+    ollama client's -1) are not permanent, so callers keep retrying them.
+    """
+    return 400 <= status < 500 and status not in RETRYABLE_HTTP_STATUSES
+
+
 class StructuredOutputError(InferenceError):
     """chat_structured exhausted every parse tier and retry.
 
