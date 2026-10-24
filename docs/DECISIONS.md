@@ -355,6 +355,7 @@ Contents
 - **Decision:** Replay builds its own `ReplayStore` (`state.py:474`) inside `ReplayManager`. While replay is active, the broadcaster reads it instead of live state. Replay and live simulation exclude each other (B4). Replay never writes the live StateStore phase: start and stop leave IDLE or COMPLETE as they were, so a replay cannot block a report or a new run ([p34-d-10](#p34-d-10), 2026-10).
 - **Rationale:** Reusing StateStore would corrupt the live run. The rationale drain was destructive at the time, and the elapsed timer would restart.
 - **Read model (2026-10):** Replay shows every configured bracket in config order, with its display name. Bracket rows count BUY/SELL/HOLD only: `total` and the averages exclude PARSE_ERROR, so a replayed round matches the live frame's `compute_bracket_summaries`. The report's consensus summary, by contrast, gives PARSE_ERROR its own row ([adr-report-react](#adr-report-react)). Rationales come from `Decision.rationale` ([adr-neo4j-schema](#adr-neo4j-schema)).
+- **Seek (2026-10):** Replay can show any round of the cycle: `POST /api/replay/round/{n}` (`ReplayManager.seek`, clamped to the cycle's depth) reads the round first and commits it in one step, like `advance`, under the same lock, so rapid seeks apply in call order and the last one wins. The round scrubber, rewind and "Play cascade" use it.
 
 ### <a id="adr-neo4j-schema"></a>Neo4j graph model
 - **Decision:**

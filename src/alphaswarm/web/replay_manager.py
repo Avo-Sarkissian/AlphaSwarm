@@ -251,6 +251,27 @@ class ReplayManager:
         log.info("replay_advanced", cycle_id=cycle_id, round_num=next_round)
         return next_round
 
+    async def seek(self, graph_manager: GraphStateManager, round_num: int) -> int:
+        """Show *round_num* (clamped to 1..the cycle's depth) and return it.
+
+        Same discipline as advance(): the round is read first and committed in
+        one synchronous step, so a failed read leaves the current round on
+        screen. The lock serialises seeks, so rapid clicks apply in call order
+        and the last one wins (docs/DECISIONS.md#adr-replaystore-separate).
+        """
+        async with self._lock:
+            store, cycle_id = self._store, self._cycle_id
+            if store is None or cycle_id is None:
+                raise NoReplayActiveError("No replay active")
+            target = min(max(round_num, 1), self._max_rounds)
+            if target == self._round_num:
+                return target
+            rows = await _load_round(graph_manager, cycle_id, target)
+            self._show(store, target, rows)
+            self._round_num = target
+        log.info("replay_seeked", cycle_id=cycle_id, round_num=target)
+        return target
+
     async def stop(self) -> None:
         """End the replay; the live phase is untouched (docs/DECISIONS.md#p34-d-10)."""
         async with self._lock:

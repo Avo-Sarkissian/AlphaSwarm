@@ -10,7 +10,7 @@ import pytest
 from alphaswarm.errors import Neo4jQueryError
 from alphaswarm.state import AgentState, StateStore
 from alphaswarm.types import SignalType
-from alphaswarm.web.replay_manager import ReplayManager
+from alphaswarm.web.replay_manager import NoReplayActiveError, ReplayManager
 
 CYCLE = "00000000-0000-4000-8000-0000000000a1"
 SIGNALS = {
@@ -139,3 +139,54 @@ async def test_advance_stops_at_the_cycle_depth() -> None:
     assert await manager.advance(graph) == 2  # type: ignore[arg-type]
     assert await manager.advance(graph) == 2  # type: ignore[arg-type]
     assert ("brackets", 3) not in graph.reads
+
+
+async def test_seek_jumps_to_any_round() -> None:
+    manager = new_manager()
+    graph = RoundGraph()
+    await manager.start(CYCLE, SIGNALS, graph)
+    assert await manager.seek(graph, 3) == 3
+    assert shown(manager) == (3, 3, 3, {3})
+    assert await manager.seek(graph, 1) == 1
+    assert shown(manager) == (1, 1, 1, {1})
+
+
+async def test_seek_clamps_to_the_cycle_and_skips_a_no_op() -> None:
+    two_rounds = {key: state for key, state in SIGNALS.items() if key[1] <= 2}
+    manager = new_manager()
+    graph = RoundGraph()
+    await manager.start(CYCLE, two_rounds, graph)
+    reads_after_start = len(graph.reads)
+    assert await manager.seek(graph, 1) == 1
+    assert len(graph.reads) == reads_after_start
+    assert await manager.seek(graph, 9) == 2
+    assert ("brackets", 3) not in graph.reads
+
+
+async def test_failed_seek_keeps_the_current_round() -> None:
+    manager = new_manager()
+    graph = RoundGraph(fail_round=3)
+    await manager.start(CYCLE, SIGNALS, graph)
+    with pytest.raises(Neo4jQueryError):
+        await manager.seek(graph, 3)
+    assert shown(manager) == (1, 1, 1, {1})
+
+
+async def test_concurrent_seeks_apply_in_call_order() -> None:
+    manager = new_manager()
+    graph = RoundGraph(gate_round=3)
+    await manager.start(CYCLE, SIGNALS, graph)
+    first = asyncio.create_task(manager.seek(graph, 3))
+    await graph.entered.wait()  # round 3 is being read; nothing is committed yet
+    second = asyncio.create_task(manager.seek(graph, 1))
+    await asyncio.sleep(0)
+    assert shown(manager) == (1, 1, 1, {1})
+    graph.release.set()
+    assert await first == 3
+    assert await second == 1  # waited for the lock, then won: the last click wins
+    assert shown(manager) == (1, 1, 1, {1})
+
+
+async def test_seek_without_a_replay_raises() -> None:
+    with pytest.raises(NoReplayActiveError):
+        await new_manager().seek(RoundGraph(), 2)

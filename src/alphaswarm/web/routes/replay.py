@@ -7,6 +7,7 @@ from typing import Annotated
 
 import structlog
 from fastapi import APIRouter, Query, Request
+from fastapi import Path as PathParam
 from pydantic import BaseModel
 
 from alphaswarm.web.errors import ApiError
@@ -131,6 +132,27 @@ async def replay_advance(request: Request) -> ReplayAdvanceResponse:
     new_round = await replay_manager.advance(graph)
     log.info("replay_advanced", round_num=new_round)
     return ReplayAdvanceResponse(status="ok", round_num=new_round)
+
+
+@router.post("/replay/round/{round_num}", response_model=ReplayAdvanceResponse)
+async def replay_seek(
+    round_num: Annotated[int, PathParam(ge=1, le=3)],
+    request: Request,
+) -> ReplayAdvanceResponse:
+    """Show round *round_num* of the active replay, clamped to the cycle's depth.
+
+    Used by the round scrubber, rewind and "Play cascade"
+    (docs/DECISIONS.md#adr-replaystore-separate). 409 no_replay_active without a
+    replay, 422 validation_error outside 1..3, 503 graph_unavailable without
+    Neo4j. The 5 Hz broadcaster shows the round on its next tick.
+    """
+    replay_manager = request.app.state.replay_manager
+    if not replay_manager.is_active:
+        raise ApiError(409, "no_replay_active", "No replay session is active")
+    graph = require_graph(request.app.state.app_state)
+    shown_round = await replay_manager.seek(graph, round_num)
+    log.info("replay_seek_served", round_num=shown_round)
+    return ReplayAdvanceResponse(status="ok", round_num=shown_round)
 
 
 @router.post("/replay/stop", response_model=ReplayStopResponse)
