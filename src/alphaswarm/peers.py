@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Final
 
 import structlog
 
-from alphaswarm.security.sanitize import sanitize_peer_rationale, sanitize_rationale
+from alphaswarm.security.sanitize import sanitize_peer_rationale
 from alphaswarm.types import SignalType
 
 if TYPE_CHECKING:
@@ -359,7 +359,6 @@ def compute_exposure_metrics(
 
 CONTROL_SALT: Final = "control"
 SHOCK_ARM_SALT: Final = "shock"
-_OWN_PRIOR_TRANSLATION: Final = str.maketrans({"<": None, ">": None, "[": "(", "]": ")", '"': "'"})
 
 
 def subset_size(count: int, fraction: float) -> int:
@@ -405,16 +404,15 @@ def own_prior_line(decision: AgentDecision | None, source_round: int) -> str | N
     """The reader's own previous decision as one sanitized line, or None.
 
     None for a missing or PARSE_ERROR decision, so a failure never appears as a
-    position. The rationale is model output: control characters go, whitespace
-    collapses into one line and the text is cut at 300 characters ("..." marks a
-    cut). Then "<"/">" are dropped and "[" "]" become "(" ")", so no fence tag or
-    [agent_id] token can be forged, and double quotes become single quotes, so a
-    quoted field stays unambiguous (docs/DECISIONS.md#adr-diverse-peer-context).
+    position. The rationale is the agent's own model output, sanitized like a
+    peer rationale (``sanitize_peer_rationale``: one line, no fence tag or
+    [agent_id] token can be forged, cut near 300 characters with "…";
+    docs/DECISIONS.md#adr-run-manifest).
     """
     if decision is None or decision.signal == SignalType.PARSE_ERROR:
         return None
     head = f"Your Round {source_round} position: {decision.signal.value.upper()} (conf {decision.confidence:.2f})"
-    rationale = sanitize_rationale(decision.rationale, max_len=300).translate(_OWN_PRIOR_TRANSLATION).strip()
+    rationale = sanitize_peer_rationale(decision.rationale)
     return f"{head}: {rationale}" if rationale else head
 
 
