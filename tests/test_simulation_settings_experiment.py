@@ -37,6 +37,7 @@ def test_experiment_knob_defaults(monkeypatch: pytest.MonkeyPatch) -> None:
     assert sim.sim_seed is None
     assert sim.experiment_tag is None
     assert sim.retest_round1 is False
+    assert sim.persona_traits is True
 
 
 def test_experiment_knobs_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -121,5 +122,12 @@ def test_model_dump_is_json_and_complete() -> None:
         "sim_seed",
         "experiment_tag",
         "retest_round1",
+        "persona_traits",
     ):
         assert key in dumped
+
+
+def test_persona_traits_env_override(monkeypatch: pytest.MonkeyPatch) -> None:
+    _clear_simulation_env(monkeypatch)
+    monkeypatch.setenv("ALPHASWARM_SIMULATION__PERSONA_TRAITS", "false")
+    assert AppSettings(_env_file=None).simulation.persona_traits is False  # type: ignore[call-arg]

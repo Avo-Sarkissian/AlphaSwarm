@@ -369,6 +369,30 @@ def _derived_cycle_metrics(
     return metrics
 
 
+def _run_roster(
+    personas: Sequence[AgentPersona],
+    brackets: Sequence[BracketConfig],
+    modifier_result: ParsedModifiersResult | None,
+    *,
+    trait_seed: int | None,
+) -> list[AgentPersona]:
+    """The personas this run's rounds use: the cycle's generated modifiers and, when
+    persona traits are on, seeded per-agent traits (docs/DECISIONS.md#adr-persona-traits)."""
+    if modifier_result is None and trait_seed is None:
+        return list(personas)
+    roster = generate_personas(
+        list(brackets),
+        modifiers=modifier_result.modifiers if modifier_result is not None else None,
+        seed=trait_seed,
+    )
+    logger.info(
+        "personas_regenerated",
+        parse_tier=modifier_result.parse_tier if modifier_result is not None else None,
+        persona_traits=trait_seed is not None,
+    )
+    return roster
+
+
 def _collect_prompt_hashes(brackets: Sequence[BracketConfig]) -> dict[str, str]:
     """sha256 of every static prompt text a run depends on (docs/DECISIONS.md#adr-run-manifest).
 
@@ -459,14 +483,12 @@ async def _run_simulation(
     structlog.contextvars.bind_contextvars(cycle_id=cycle_id)
     if state is not None:
         await state.set_cycle(cycle_id)
-    roster = list(personas)
-    if modifier_result is not None:
-        roster = generate_personas(list(brackets), modifiers=modifier_result.modifiers)
-        logger.info("personas_regenerated_with_modifiers", parse_tier=modifier_result.parse_tier)
     market_context = await _round_1_market_context(deps, cycle_id, parsed_result)
     sim_seed = await _record_run_manifest(
         deps, cycle_id, brackets, modifier_result, market_context, git=(git_sha, git_dirty)
     )
+    trait_seed = sim_seed if settings.simulation.persona_traits else None
+    roster = _run_roster(personas, brackets, modifier_result, trait_seed=trait_seed)
     ctx = RoundContext(
         deps=deps,
         cycle_id=cycle_id,

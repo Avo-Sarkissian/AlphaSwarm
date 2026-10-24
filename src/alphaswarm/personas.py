@@ -7,9 +7,12 @@ docs/DECISIONS.md#adr-swarm-composition-v2. Plain typed Python, no data files.
 from __future__ import annotations
 
 import hashlib
+import itertools
 import json
+import random
 import re
 from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Final
 
@@ -426,6 +429,7 @@ def generate_personas(
     brackets: list[BracketConfig],
     *,
     modifiers: dict[BracketType, str] | None = None,
+    seed: int | None = None,
 ) -> list[AgentPersona]:
     """Generate all agent personas from bracket definitions.
 
@@ -435,12 +439,16 @@ def generate_personas(
     - the bracket system_prompt_template
     - this cycle's generated focus line for the bracket, when modifiers are given
     - the agent's static round-robin modifier
+    - the agent's seeded traits, when seed is given
     - the agent header "[<Name> | <Display> bracket]", last
     shared_prompt_chars is the length of the first three parts.
 
     When modifiers is provided (Phase 13), uses the single generated modifier
     for all agents in a bracket (per D-02). When modifiers is None, falls back
     to static BRACKET_MODIFIERS round-robin (original behavior).
+
+    seed draws seeded per-agent traits (docs/DECISIONS.md#adr-persona-traits); None
+    keeps the prompts exactly as before.
 
     Total assembled prompt targets 180-260 words, under 350-word safety cap.
 
@@ -470,6 +478,10 @@ def generate_personas(
             if generated:
                 shared += f"This cycle you are focused as a {generated}.\n"
             tail = f"You are a {modifier}.\n" if modifier else ""
+            if seed is not None:
+                # Agent text: after the shared prefix, before the header
+                # (docs/DECISIONS.md#adr-persona-traits).
+                tail += render_traits(trait_for(bracket, i, seed=seed))
             tail += f"[{agent_name} | {bracket.display_name} bracket]"
             system_prompt = shared + tail
             personas.append(
@@ -529,7 +541,7 @@ def persona_to_worker_config(persona: AgentPersona) -> WorkerPersonaConfig:
 
 
 # The agent header "[<Display> <i> | <Display> bracket]". Stripped to see what really
-# differs between agents (docs/DECISIONS.md#adr-swarm-composition-v2).
+# differs between agents (docs/DECISIONS.md#adr-persona-traits).
 PERSONA_HEADER_RE: Final = re.compile(r"^\[[^\]|]+? \| [^\]]+? bracket\]\n?", re.MULTILINE)
 
 
@@ -548,3 +560,113 @@ def prompt_twin_groups(personas: Sequence[AgentPersona]) -> list[tuple[str, ...]
     for persona in personas:
         groups.setdefault(persona_body(persona.system_prompt), []).append(persona.id)
     return [tuple(ids) for ids in groups.values()]
+
+
+# ---------------------------------------------------------------------------
+# Seeded per-agent traits (docs/DECISIONS.md#adr-persona-traits)
+# ---------------------------------------------------------------------------
+
+# Horizons are bracket-appropriate; positions and coverage are shared pools.
+# 3 x 5 x 7 = 105 combinations per bracket, more than any prompt-twin group needs.
+TRAIT_HORIZONS: Final[Mapping[BracketType, tuple[str, str, str]]] = MappingProxyType(
+    {
+        BracketType.INSTITUTIONS: (
+            "one to two quarters",
+            "six to twelve months",
+            "several years",
+        ),
+        BracketType.SELL_SIDE: (
+            "the next earnings print",
+            "a twelve-month price target",
+            "the next two quarters",
+        ),
+        BracketType.EVENT_DRIVEN: (
+            "until the deal closes or breaks",
+            "the next catalyst date",
+            "four to eight weeks",
+        ),
+        BracketType.QUANTS: ("one to five days", "two to four weeks", "one quarter"),
+        BracketType.DEGENS: ("intraday", "this week", "until the next headline"),
+        BracketType.NARRATORS: (
+            "today's news cycle",
+            "this week's narrative",
+            "the next month's storyline",
+        ),
+        BracketType.ALGOS: ("seconds to minutes", "the trading session", "overnight"),
+        BracketType.MACRO: (
+            "the next policy meeting",
+            "one to two quarters",
+            "the cycle, one to two years",
+        ),
+        BracketType.SHORTS: (
+            "until the thesis plays out, months",
+            "the next disclosure",
+            "four to twelve weeks",
+        ),
+        BracketType.ALLOCATORS: (
+            "several years",
+            "a decade",
+            "the next rebalancing window",
+        ),
+    }
+)
+TRAIT_POSITIONS: Final[tuple[str, ...]] = (
+    "flat, no exposure to the names involved",
+    "modestly long the names involved",
+    "heavily long the names involved",
+    "modestly short the names involved",
+    "hedged, long and short across the names involved",
+)
+TRAIT_SECTORS: Final[tuple[str, ...]] = (
+    "technology",
+    "healthcare",
+    "financials",
+    "energy",
+    "industrials",
+    "consumer",
+    "a generalist book",
+)
+
+
+@dataclass(frozen=True)
+class PersonaTraits:
+    horizon: str
+    position: str
+    sector_focus: str
+
+
+def _trait_rng(seed: int, key: str) -> random.Random:
+    digest = hashlib.blake2b(f"{seed}:traits:{key}".encode(), digest_size=8).digest()
+    return random.Random(int.from_bytes(digest, "big"))
+
+
+def trait_for(bracket: BracketConfig, index: int, *, seed: int) -> PersonaTraits:
+    """Traits of the index-th (1-based) agent of *bracket*.
+
+    Agents that share a static round-robin modifier (prompt twins) draw distinct
+    combinations from one seeded shuffle per modifier group.
+    """
+    modifier_count = len(BRACKET_MODIFIERS.get(bracket.bracket_type, [])) or 1
+    group = (index - 1) % modifier_count
+    slot = (index - 1) // modifier_count
+    group_size = len(range(group, bracket.count, modifier_count))
+    combos = list(itertools.product(TRAIT_HORIZONS[bracket.bracket_type], TRAIT_POSITIONS, TRAIT_SECTORS))
+    picks = _trait_rng(seed, f"{bracket.bracket_type.value}:{group}").sample(combos, k=group_size)
+    return PersonaTraits(*picks[slot])
+
+
+def assign_traits(brackets: Sequence[BracketConfig], *, seed: int) -> dict[str, PersonaTraits]:
+    """Agent id -> traits, for every agent generate_personas(brackets) creates."""
+    return {
+        f"{bracket.bracket_type.value}_{i:02d}": trait_for(bracket, i, seed=seed)
+        for bracket in brackets
+        for i in range(1, bracket.count + 1)
+    }
+
+
+def render_traits(traits: PersonaTraits) -> str:
+    """The one-line trait sentence of an agent's persona prompt."""
+    return (
+        f"Your horizon: {traits.horizon}. Your current position: {traits.position}. "
+        f"Your coverage focus: {traits.sector_focus}.\n"
+    )

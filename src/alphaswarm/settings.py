@@ -232,6 +232,8 @@ class SimulationSettings(BaseModel):
     experiment_tag: str | None = Field(default=None, max_length=64, pattern=r"^[A-Za-z0-9_.-]+$")
     # Dispatch Round 1 a second time with fresh seeds to measure the noise floor.
     retest_round1: bool = False
+    # Seeded per-agent traits in every persona (docs/DECISIONS.md#adr-persona-traits).
+    persona_traits: bool = True
 
 
 # ---------------------------------------------------------------------------

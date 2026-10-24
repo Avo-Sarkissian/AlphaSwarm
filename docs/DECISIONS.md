@@ -170,6 +170,10 @@ Contents
 - **Rationale:** v1 had Sovereigns, Whales, Suits, Insiders, Policy Wonks, and Doom-Posters. Combined with static-authority peer ranking, it manufactured convergence toward a HOLD-heavy bloc (SWEEP-260528 §3).
 - **Action-bias mix:** 4 hold-biased, 4 act-biased, 1 sell-biased, 1 second-order.
 
+### <a id="adr-persona-traits"></a>Seeded per-agent traits break the prompt twins (Phase 7)
+- **Decision:** With `simulation.persona_traits` (default on) each agent's persona gains one sentence (horizon from a bracket-appropriate pool, current position, coverage focus), placed after its round-robin modifier and before the header, so the shared prefix stays shared ([adr-prefix-reuse](#adr-prefix-reuse)). Draws use `random.Random(blake2b("{sim_seed}:traits:{bracket}:{modifier group}"))` (`personas.trait_for`); agents that share a static modifier always get distinct combinations, so every header-stripped prompt is unique (`personas.prompt_twin_groups`). `ALPHASWARM_SIMULATION__PERSONA_TRAITS=false` reproduces the trait-less prompts. Bracket composition, counts and reach are unchanged ([adr-swarm-composition-v2](#adr-swarm-composition-v2)).
+- **Rationale:** Round-robin modifiers gave 43 distinct prompt bodies for 100 agents; prompt twins at low temperature answer alike, so measured agreement partly reflected duplication rather than opinion formation. The effect is measured as Round 1 agreement among former twins (`scripts/persona_agreement.py`, `docs/experiments.md`).
+
 ### <a id="adr-influence-weight-reach"></a>`influence_weight_base` means narrative reach, not capital
 - **Decision:** Weights span 0.45-0.75, and Sell-Side and Narrators rank highest on purpose.
 - **Rationale:** Peer visibility, not assets under management, determines whose rationale others read.

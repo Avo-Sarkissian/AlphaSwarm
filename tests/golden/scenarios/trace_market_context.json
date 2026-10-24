@@ -323,7 +323,7 @@
   ],
   "prompts": {
     "decision_calls": 300,
-    "digest": "91adf7e1d7b54625cce8e4f9d9bb598ebce74499a6d72807f2d65da9ae309e95",
+    "digest": "04e4e7b0c5c2366f49be2a1e9ad97268547bf62d16cb8dc7524ee468c96e078a",
     "samples": {
       "r1:allocators_05": [
         {
@@ -335,7 +335,7 @@
           "role": "system"
         },
         {
-          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\n[Allocators 5 | Allocators bracket]",
+          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\nYour horizon: a decade. Your current position: heavily long the names involved. Your coverage focus: industrials.\n[Allocators 5 | Allocators bracket]",
           "role": "system"
         },
         {
@@ -353,7 +353,7 @@
           "role": "system"
         },
         {
-          "content": "You are a meme-stock maximalist who lives for viral momentum.\n[Degens 1 | Degens bracket]",
+          "content": "You are a meme-stock maximalist who lives for viral momentum.\nYour horizon: until the next headline. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Degens 1 | Degens bracket]",
           "role": "system"
         },
         {
@@ -371,7 +371,7 @@
           "role": "system"
         },
         {
-          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\n[Institutions 1 | Institutions bracket]",
+          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\nYour horizon: several years. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Institutions 1 | Institutions bracket]",
           "role": "system"
         },
         {
@@ -393,7 +393,7 @@
           "role": "system"
         },
         {
-          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\n[Allocators 5 | Allocators bracket]",
+          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\nYour horizon: a decade. Your current position: heavily long the names involved. Your coverage focus: industrials.\n[Allocators 5 | Allocators bracket]",
           "role": "system"
         },
         {
@@ -415,7 +415,7 @@
           "role": "system"
         },
         {
-          "content": "You are a meme-stock maximalist who lives for viral momentum.\n[Degens 1 | Degens bracket]",
+          "content": "You are a meme-stock maximalist who lives for viral momentum.\nYour horizon: until the next headline. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Degens 1 | Degens bracket]",
           "role": "system"
         },
         {
@@ -437,7 +437,7 @@
           "role": "system"
         },
         {
-          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\n[Institutions 1 | Institutions bracket]",
+          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\nYour horizon: several years. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Institutions 1 | Institutions bracket]",
           "role": "system"
         },
         {
@@ -459,7 +459,7 @@
           "role": "system"
         },
         {
-          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\n[Allocators 5 | Allocators bracket]",
+          "content": "You are a sovereign wealth manager deploying patient capital with strategic intent.\nYour horizon: a decade. Your current position: heavily long the names involved. Your coverage focus: industrials.\n[Allocators 5 | Allocators bracket]",
           "role": "system"
         },
         {
@@ -481,7 +481,7 @@
           "role": "system"
         },
         {
-          "content": "You are a meme-stock maximalist who lives for viral momentum.\n[Degens 1 | Degens bracket]",
+          "content": "You are a meme-stock maximalist who lives for viral momentum.\nYour horizon: until the next headline. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Degens 1 | Degens bracket]",
           "role": "system"
         },
         {
@@ -503,7 +503,7 @@
           "role": "system"
         },
         {
-          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\n[Institutions 1 | Institutions bracket]",
+          "content": "You are a large-cap growth PM defending quarterly performance against the benchmark.\nYour horizon: several years. Your current position: modestly long the names involved. Your coverage focus: energy.\n[Institutions 1 | Institutions bracket]",
           "role": "system"
         },
         {

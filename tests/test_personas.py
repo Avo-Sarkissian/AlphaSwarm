@@ -8,7 +8,12 @@ from typing import TYPE_CHECKING
 import pytest
 from pydantic import ValidationError
 
-from alphaswarm.personas import BRACKET_MODIFIERS, persona_body, prompt_twin_groups
+from alphaswarm.personas import (
+    BRACKET_MODIFIERS,
+    generate_personas,
+    persona_body,
+    prompt_twin_groups,
+)
 from alphaswarm.types import BracketType
 
 if TYPE_CHECKING:
@@ -88,10 +93,10 @@ def test_static_modifiers_leave_prompt_twins(
     assert len(prompt_twin_groups(all_personas)) == expected
 
 
-@pytest.mark.xfail(strict=True, reason="prompt twins share a body until seeded traits land")
-def test_every_persona_body_is_unique(all_personas: list[AgentPersona]) -> None:
-    bodies = [persona_body(p.system_prompt) for p in all_personas]
-    assert len(set(bodies)) == len(all_personas)
+def test_every_persona_body_is_unique(all_brackets: list[BracketConfig]) -> None:
+    personas = generate_personas(all_brackets, seed=101)
+    bodies = [persona_body(p.system_prompt) for p in personas]
+    assert len(set(bodies)) == len(personas)
 
 
 def test_persona_contains_json_instructions(all_personas: list[AgentPersona]) -> None:
