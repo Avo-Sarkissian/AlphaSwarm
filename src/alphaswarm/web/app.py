@@ -31,6 +31,7 @@ from alphaswarm.web.origin_guard import install_origin_guard, normalized_trusted
 from alphaswarm.web.replay_manager import ReplayManager
 from alphaswarm.web.routes.advisory import router as advisory_router
 from alphaswarm.web.routes.agents import router as agents_router
+from alphaswarm.web.routes.cycles import router as cycles_router
 from alphaswarm.web.routes.edges import router as edges_router
 from alphaswarm.web.routes.health import router as health_router
 from alphaswarm.web.routes.holdings import PortfolioCache
@@ -307,6 +308,7 @@ def create_app(
     app.include_router(report_router, prefix="/api")
     app.include_router(advisory_router, prefix="/api")
     app.include_router(agents_router, prefix="/api")
+    app.include_router(cycles_router, prefix="/api")
     app.include_router(settings_router, prefix="/api")
     app.include_router(ws_router)  # No prefix — /ws/state is the full WebSocket path (D-08)
 

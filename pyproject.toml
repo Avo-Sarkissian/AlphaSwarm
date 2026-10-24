@@ -208,6 +208,7 @@ source_modules = [
     "alphaswarm.web.simulation_manager",
     "alphaswarm.web.routes",
     "alphaswarm.web.routes.agents",
+    "alphaswarm.web.routes.cycles",
     "alphaswarm.web.routes.edges",
     "alphaswarm.web.routes.health",
     "alphaswarm.web.routes.interview",
