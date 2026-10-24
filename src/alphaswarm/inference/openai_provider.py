@@ -8,6 +8,7 @@ Conforms to the ``InferenceProvider`` protocol without subclassing it.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Iterable, Mapping
 from typing import Any, Final
 
@@ -62,6 +63,14 @@ def _body_mentions_strict_unsupported(body: str) -> bool:
     """Return True if the 400 error body suggests strict JSON schema is unsupported."""
     lower = body.lower()
     return any(marker in lower for marker in _STRICT_UNSUPPORTED_MARKERS)
+
+
+_SEED_WORD_RE: Final = re.compile(r"\bseed\b", re.IGNORECASE)
+
+
+def _mentions_seed(text: str) -> bool:
+    """True when an error message names the ``seed`` request field."""
+    return bool(_SEED_WORD_RE.search(text))
 
 
 def _billed_usage(resp: httpx.Response) -> tuple[int | None, int | None]:
@@ -135,6 +144,7 @@ class OpenAICompatProvider:
         self.model: str = model
         self._max_retries: int = max_retries
         self._no_strict: bool = False  # set True when endpoint 400s on json_schema
+        self._send_seed: bool = True  # False once the endpoint rejected the "seed" field
         self._retry_policy: RetryPolicy = retry_policy
         # Shared cooldown and RPM pacing in cloud mode; set by factory.attach_retry_gate
         # (docs/DECISIONS.md#adr-cloud-retry).
@@ -260,9 +270,24 @@ class OpenAICompatProvider:
             Cached prompt tokens and the finish reason are reported; timings are not (cloud).
         """
         body = self._build_body(messages, response_schema, json_mode, temperature, max_tokens)
-        if seed is not None:
+        if seed is not None and self._send_seed:
             body["seed"] = seed
-        return await logged_call(self.role, self.model, self._post_with_retry(body, response_schema=response_schema))
+        return await logged_call(self.role, self.model, self._post_seeded(body, response_schema=response_schema))
+
+    async def _post_seeded(self, body: dict[str, Any], *, response_schema: dict[str, Any] | None) -> InferenceResult:
+        """``_post_with_retry``, retried once without ``seed`` when the server rejects the field."""
+        try:
+            return await self._post_with_retry(body, response_schema=response_schema)
+        except InferenceError as exc:
+            if isinstance(exc, AuthError) or "seed" not in body or not _mentions_seed(str(exc)):
+                raise
+            # Some OpenAI-compatible servers reject unknown fields. Reproducibility
+            # degrades to "unseeded" for this provider; the round keeps going
+            # (docs/DECISIONS.md#adr-run-manifest).
+            self._send_seed = False
+            del body["seed"]
+            log.warning("seed_parameter_unsupported", model=self.model)
+            return await self._post_with_retry(body, response_schema=response_schema)
 
     # ------------------------------------------------------------------
     # Private helpers
