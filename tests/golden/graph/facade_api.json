@@ -5,7 +5,7 @@
   "create_cycle_with_seed_event": "(self, seed_rumor: 'str', seed_event: 'SeedEvent', *, num_rounds: 'int', modifiers: 'Mapping[BracketType, str] | None' = None, prompt_template_hash: 'str | None' = None) -> 'str'",
   "cycle_exists": "(self, cycle_id: 'str') -> 'bool'",
   "ensure_schema": "(self) -> 'None'",
-  "persist_round": "(self, cycle_id: 'str', round_num: 'int', decisions: 'Sequence[tuple[str, AgentDecision]]', *, decision_ids: 'Sequence[str]', episodes: 'Sequence[EpisodeRecord]', entity_matches: 'Sequence[EntityMatch]', control_ids: 'Collection[str]' = ()) -> 'PersistRoundResult'",
+  "persist_round": "(self, cycle_id: 'str', round_num: 'int', decisions: 'Sequence[tuple[str, AgentDecision]]', *, decision_ids: 'Sequence[str]', episodes: 'Sequence[EpisodeRecord]', entity_matches: 'Sequence[EntityMatch]', control_ids: 'Collection[str]' = (), exposures: 'Mapping[str, Sequence[str]] | None' = None, citations_invalid: 'Mapping[str, int] | None' = None, shock_treated_ids: 'Collection[str] | None' = None) -> 'PersistRoundResult'",
   "read_agent_decisions": "(self, cycle_id: 'str', agent_id: 'str') -> 'list[AgentDecisionRow]'",
   "read_agent_interview_rows": "(self, agent_id: 'str', cycle_id: 'str') -> 'AgentInterviewRows'",
   "read_bracket_narratives": "(self, cycle_id: 'str') -> 'list[BracketNarrativeRow]'",

@@ -112,7 +112,10 @@ CREATE (dec:Decision {
     rationale: d.rationale,
     control: d.control,
     error_kind: d.error_kind,
-    parse_tier: d.parse_tier
+    parse_tier: d.parse_tier,
+    peer_ids: d.peer_ids,
+    citations_invalid: d.citations_invalid,
+    shock_treated: d.shock_treated
 })
 CREATE (a)-[:MADE]->(dec)
 RETURN count(dec) AS created
@@ -494,6 +497,9 @@ async def persist_round(
     episodes: Sequence[EpisodeRecord],
     entity_matches: Sequence[EntityMatch],
     control_ids: Collection[str] = (),
+    exposures: Mapping[str, Sequence[str]] | None = None,
+    citations_invalid: Mapping[str, int] | None = None,
+    shock_treated_ids: Collection[str] | None = None,
 ) -> PersistRoundResult:
     """Write one round in a single transaction (docs/DECISIONS.md#p4-d-08).
 
@@ -504,11 +510,18 @@ async def persist_round(
     stores ``control``: true for the agents in ``control_ids`` (the seeded
     no-peer holdout), false otherwise
     (docs/DECISIONS.md#adr-diverse-peer-context).
+
+    ``exposures``, ``citations_invalid`` and ``shock_treated_ids`` become
+    ``d.peer_ids`` (shown order; ``[]`` for an agent without an entry),
+    ``d.citations_invalid`` (0 by default) and ``d.shock_treated``. ``None``
+    leaves the property absent, because Neo4j stores no nulls: absent means
+    "not recorded" (docs/DECISIONS.md#adr-run-manifest).
     """
     if len(decision_ids) != len(decisions):
         raise ValueError(f"decision_ids length {len(decision_ids)} != decisions length {len(decisions)}")
     pairs = list(zip(decision_ids, decisions, strict=True))
     control_set = frozenset(control_ids)
+    shock_set = frozenset(shock_treated_ids) if shock_treated_ids is not None else None
     decision_rows = [
         {
             "decision_id": did,
@@ -520,6 +533,10 @@ async def persist_round(
             "control": agent_id in control_set,
             "error_kind": d.error_kind,
             "parse_tier": d.parse_tier,
+            # None -> property absent (Neo4j stores no nulls): "not recorded".
+            "peer_ids": list(exposures.get(agent_id, ())) if exposures is not None else None,
+            "citations_invalid": (citations_invalid.get(agent_id, 0) if citations_invalid is not None else None),
+            "shock_treated": (agent_id in shock_set) if shock_set is not None else None,
         }
         for did, (agent_id, d) in pairs
     ]

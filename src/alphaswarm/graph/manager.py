@@ -202,6 +202,9 @@ class GraphStateManager:
         episodes: Sequence[EpisodeRecord],
         entity_matches: Sequence[EntityMatch],
         control_ids: Collection[str] = (),
+        exposures: Mapping[str, Sequence[str]] | None = None,
+        citations_invalid: Mapping[str, int] | None = None,
+        shock_treated_ids: Collection[str] | None = None,
     ) -> PersistRoundResult:
         return await schema_writes.persist_round(
             self._write,
@@ -212,6 +215,9 @@ class GraphStateManager:
             episodes=episodes,
             entity_matches=entity_matches,
             control_ids=control_ids,
+            exposures=exposures,
+            citations_invalid=citations_invalid,
+            shock_treated_ids=shock_treated_ids,
         )
 
     async def compute_influence_edges(self, cycle_id: str, up_to_round: int, total_agents: int) -> dict[str, float]:
