@@ -29,10 +29,10 @@ only through generated blocks, which `uv run python scripts/docs_sync.py write` 
 | `model_weights` | Model memory (loaded, Ollama) | not measured | [Memory budget](RUNBOOK.md#memory-budget): not measured yet |
 | `wall_clock_3r` | 3-round run, median wall time | not measured | [Arms](#arms): no runs recorded |
 | `wall_clock_2r` | 2-round run, median wall time | not measured | [Ablation protocol](methodology.md): no runs recorded |
-| `backend_tests` | Backend tests (offline suite; Neo4j suite not measured) | 2,284 | [Test suite](#test-suite-v60) |
-| `backend_coverage` | Backend coverage (line + branch, offline suite) | 91% | [Test suite](#test-suite-v60) |
-| `frontend_tests` | Frontend tests (vitest) | 392 | [Test suite](#test-suite-v60) |
-| `import_contracts` | Import-linter contracts kept | 1 | [Test suite](#test-suite-v60) |
+| `backend_tests` | Backend tests (offline + Neo4j) | 4,037 | [Test suite](#test-suite-v60) |
+| `backend_coverage` | Backend coverage (line + branch, offline suite) | 95.5% | [Test suite](#test-suite-v60) |
+| `frontend_tests` | Frontend tests (vitest) | 881 | [Test suite](#test-suite-v60) |
+| `import_contracts` | Import-linter contracts kept | 5 | [Test suite](#test-suite-v60) |
 | `demo_url` | Static demo | not published | [Pages workflow](../.github/workflows/pages.yml): not run yet |
 <!-- headline:end -->
 
@@ -105,18 +105,17 @@ the headers of [Modelfile.worker](../modelfiles/Modelfile.worker) and
 
 ## Test suite (v6.0)
 
-Counted on 2026-10-22 on branch `plan/24-phase-9-presentation`, based on master `05743c4`.
-The offline count leaves out all six tests in
-`tests/integration/test_yfinance_provider_live.py`: four call Yahoo Finance and need the
-network, one checks the empty-list guard without a network call, and one checks that the
-module stays under `tests/integration/`.
+Counted on 2026-10-29 on branch `plan/24-phase-9-presentation-rest`, based on master
+`e1c631e`. The offline suite deselects the tests marked `neo4j`, `live_network` (Yahoo
+Finance and RSS calls, run nightly) and `ollama`; the Neo4j suite ran against the throwaway
+`neo4j-test` database on 127.0.0.1:7688.
 
 | Suite | Command | Result |
 |---|---|---|
-| Backend, offline | `ALPHASWARM_INFERENCE_CONFIG_PATH=/nonexistent/inference.json uv run pytest -q -m "not neo4j" -p no:cacheprovider --ignore=tests/integration/test_yfinance_provider_live.py --cov=alphaswarm --cov-branch --cov-report=term` | 2,284 passed; coverage 91% (line + branch) |
-| Backend, Neo4j | `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j` | not measured: neo4j-test was in use by another run when this was counted |
-| Frontend | `npm --prefix frontend test` | 392 passed |
-| Import contracts | `uv run lint-imports` | 1 kept, 0 broken |
+| Backend, offline | `ALPHASWARM_INFERENCE_CONFIG_PATH=/nonexistent/inference.json uv run pytest -q -m "not neo4j and not live_network and not ollama" -p no:cacheprovider --cov=alphaswarm --cov-branch --cov-fail-under=85` | 3,845 passed, 204 deselected; coverage 95.5% (line + branch) |
+| Backend, Neo4j | `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j -p no:cacheprovider` | 192 passed |
+| Frontend | `npx vitest run` (in `frontend/`) | 881 passed (130 files) |
+| Import contracts | `uv run lint-imports` | 5 kept, 0 broken |
 
 ## P7.1 — reproducibility (same manifest, same seed)
 

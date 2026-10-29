@@ -124,7 +124,7 @@ result out, and the note under the list names it as a placeholder.
 3. Designed a memory-aware concurrency governor for a 64 GB M1 Max (macOS kernel memory signal, crisis escalation, gradual recovery) and per-call inference telemetry; benchmarked MLX prefill: worker 833 → 2,361 tok/s (2.8×, GGUF MoE → MLX MoE), orchestrator 111 → 3,395 tok/s (30.6×, same 27B weights).
 4. Built a real-time React/TypeScript dashboard on a versioned 5 Hz WebSocket contract with latest-wins backpressure, a deterministic influence graph that replays the round-by-round citation cascade, and a static read-only demo build.
 5. Delivered a privacy-isolated portfolio advisory: holdings never reach agent prompts, Neo4j, WebSocket frames or logs, which an import-linter contract and a four-surface canary test enforce, and no ticker reaches a cloud model without an explicit opt-in.
-6. Raised the quality bar to 2,284 backend tests (91% coverage) and 392 frontend tests, with golden tests against a throwaway Neo4j in CI and gated mypy strict, ruff, ESLint and 1 import-linter contract; fixed 35 audit findings and 6 security-scan issues with regression tests.
+6. Raised the quality bar to 4,037 backend tests (95.5% coverage) and 881 frontend tests, with golden tests against a throwaway Neo4j in CI and gated mypy strict, ruff, ESLint and 5 import-linter contracts; fixed 35 audit findings and 6 security-scan issues with regression tests.
 
 **Placeholders:** bullet 1 waits on the evaluation runs against real outcomes; bullet 2 waits on the control-group runs; bullet 3 waits on the performance-arm runs. Until then each of these bullets says what the code does, without a result.
 <!-- resume:end -->

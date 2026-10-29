@@ -194,10 +194,10 @@ Every decision, including the ones later revised, is in [docs/DECISIONS.md](docs
 <!-- quality:start -->
 | Result | Value | Source |
 |---|---|---|
-| Backend tests (offline suite; Neo4j suite not measured) | 2,284 | [Test suite](docs/experiments.md#test-suite-v60) |
-| Backend coverage (line + branch, offline suite) | 91% | [Test suite](docs/experiments.md#test-suite-v60) |
-| Frontend tests (vitest) | 392 | [Test suite](docs/experiments.md#test-suite-v60) |
-| Import-linter contracts kept | 1 | [Test suite](docs/experiments.md#test-suite-v60) |
+| Backend tests (offline + Neo4j) | 4,037 | [Test suite](docs/experiments.md#test-suite-v60) |
+| Backend coverage (line + branch, offline suite) | 95.5% | [Test suite](docs/experiments.md#test-suite-v60) |
+| Frontend tests (vitest) | 881 | [Test suite](docs/experiments.md#test-suite-v60) |
+| Import-linter contracts kept | 5 | [Test suite](docs/experiments.md#test-suite-v60) |
 <!-- quality:end -->
 
 The CI and coverage-gate badges at the top of this page track `master`. CI runs four jobs on every push: **lint** (ruff, ruff format, mypy strict, import-linter, vulture), **backend-unit** (the offline suite with a coverage gate), **backend-neo4j** (graph tests and golden read models against a throwaway Neo4j) and **frontend** (ESLint, knip, vitest and the production build). Live-network tests run nightly. Locally:
