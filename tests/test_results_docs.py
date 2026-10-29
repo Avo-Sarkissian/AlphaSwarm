@@ -58,3 +58,16 @@ def test_model_benchmarks_match_the_modelfiles() -> None:
     for figure, modelfile in figures:
         assert re.search(rf"prefill\s+{figure} t/s", modelfile), figure
         assert f"{int(figure):,}" in section, figure
+
+
+METHODOLOGY: Final = ROOT / "docs" / "methodology.md"
+
+
+def test_methodology_states_limitations_and_how_to_reproduce() -> None:
+    titles = [title for title, _ in h2_sections(METHODOLOGY.read_text(encoding="utf-8"))]
+    assert "Limitations" in titles and "Reproduce" in titles
+
+
+def test_results_docs_link_each_other() -> None:
+    assert "](methodology.md" in _experiments()
+    assert "](experiments.md" in METHODOLOGY.read_text(encoding="utf-8")
