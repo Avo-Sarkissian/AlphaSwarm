@@ -74,7 +74,7 @@ RESULT_KEYS: Final = (
 RUNTIME_KEYS: Final = ("model_weights", "wall_clock_3r", "wall_clock_2r")
 QUALITY_KEYS: Final = ("backend_tests", "backend_coverage", "frontend_tests", "import_contracts")
 VERDICTS: Final[Mapping[str, frozenset[str]]] = {
-    "eval_verdict": frozenset({"better", "no-difference", "worse", NOT_MEASURED}),
+    "eval_verdict": frozenset({"better", "inconclusive", "worse", NOT_MEASURED}),
     "peer_effect_verdict": frozenset({"positive", "null", "negative", NOT_MEASURED}),
 }
 RELEASE_OPTIONAL: Final = frozenset({"demo_url"})

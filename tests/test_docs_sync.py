@@ -239,7 +239,7 @@ def test_resume_quotes_values_with_the_verdict_wording(ds: ModuleType) -> None:
     assert "a static read-only demo on GitHub Pages" in better
     total = sum(b.count for b in DEFAULT_BRACKETS)
     assert f"runs {total} market personas in {len(DEFAULT_BRACKETS)} archetypes" in better
-    flat = ds.render_resume(_rows(ds, eval_verdict="no-difference", peer_effect_verdict="null"), DEFAULT_BRACKETS)
+    flat = ds.render_resume(_rows(ds, eval_verdict="inconclusive", peer_effect_verdict="null"), DEFAULT_BRACKETS)
     assert "showed no significant edge over single-model baselines" in flat
     assert "found no significant peer-attributable flip rate" in flat
     worse = ds.render_resume(_rows(ds, eval_verdict="worse", peer_effect_verdict="negative"), DEFAULT_BRACKETS)
@@ -335,7 +335,7 @@ def test_repo_facts_ignore_mentions_that_are_not_the_feature(
 def test_resume_and_demo_leave_out_features_the_repository_lacks(ds: ModuleType) -> None:
     absent = _facts(ds, present=False)
     claims = ("ruff", "manifest", "telemetry", "pre-registered")
-    for verdict in ("better", "worse", "no-difference", "not measured"):
+    for verdict in ("better", "worse", "inconclusive", "not measured"):
         rows = _rows(ds, eval_verdict=verdict)
         text = ds.render_resume(rows, DEFAULT_BRACKETS, facts=absent)
         assert [claim for claim in claims if claim in text] == [], verdict
@@ -391,21 +391,21 @@ ACCURACY = "(hit rate 0.61 (95% CI 0.52-0.70) vs 0.50)"
         ),
         ("worse", (), f"{ACCURACY}, reported as measured."),
         (
-            "no-difference",
+            "inconclusive",
             ("preregistered", "run_manifest"),
             f"{ACCURACY}, a result the pre-registered harness reproduces from stored run manifests.",
         ),
         (
-            "no-difference",
+            "inconclusive",
             ("run_manifest",),
             f"{ACCURACY}, a result the harness reproduces from stored run manifests.",
         ),
         (
-            "no-difference",
+            "inconclusive",
             ("preregistered",),
             f"{ACCURACY}, reported as measured with pre-registered metrics.",
         ),
-        ("no-difference", (), f"{ACCURACY}, reported as measured."),
+        ("inconclusive", (), f"{ACCURACY}, reported as measured."),
     ],
 )
 def test_resume_names_pre_registration_and_run_manifests_only_once_they_exist(
@@ -584,3 +584,15 @@ def test_main_reports_a_missing_source_as_malformed(
     (root / missing).unlink()
     assert ds.main(["--root", str(root), "check"]) == 2
     assert f"docs_sync: missing {missing}" in capsys.readouterr().err
+
+
+def test_eval_verdicts_are_the_evaluation_harness_verdicts(ds: ModuleType) -> None:
+    # The owner copies eval_verdict from the table eval/run_eval.py prints, so the headline
+    # accepts exactly the harness's conclusive and inconclusive verdicts (without "swarm ").
+    from alphaswarm.evaluation import Interval, verdict
+
+    harness = {
+        verdict(Interval(0.0, lo, hi, 5, 5)).removeprefix("swarm ")
+        for lo, hi in ((-0.2, -0.1), (-0.1, 0.1), (0.1, 0.2))
+    }
+    assert ds.VERDICTS["eval_verdict"] == harness | {ds.NOT_MEASURED}
