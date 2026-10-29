@@ -334,13 +334,14 @@ def render_demo(rows: Mapping[str, HeadlineRow], *, facts: RepoFacts | None = No
     url = rows["demo_url"].value
     if url.startswith("https://"):
         return (
-            f"**[Live demo]({url})**: a read-only replay of a real cycle in your browser, "
+            f"**[Live demo]({url})**: a read-only replay of one cycle in your browser, "
             "no install needed."
         )
     if not (repo_facts(ROOT) if facts is None else facts).demo_build:
         return ""  # nothing published and nothing to build: the README names no demo
     return (
-        "**Demo:** a read-only replay of a real cycle. Build it locally with "
+        "**Demo:** a static, read-only replay of one cycle, available once published. Until "
+        "then, build it locally with "
         "`VITE_DEMO=1 npm --prefix frontend run build && npm --prefix frontend run preview`."
     )
 
@@ -377,7 +378,8 @@ def load_captures(path: Path) -> Captures:
 
 def render_screenshots(captures: Captures) -> str:
     (first, first_alt), *rest = IMAGE_SPECS
-    out = [f"![{first_alt}](docs/media/{first})", "", f"*{first_alt}.*", "", "| | |", "|---|---|"]
+    out = ["### Screenshots", "", f"![{first_alt}](docs/media/{first})", "", f"*{first_alt}.*"]
+    out += ["", "| | |", "|---|---|"]
     for (left, left_alt), (right, right_alt) in zip(rest[0::2], rest[1::2], strict=True):
         out.append(f"| ![{left_alt}](docs/media/{left}) | ![{right_alt}](docs/media/{right}) |")
         out.append(f"| *{left_alt}.* | *{right_alt}.* |")
@@ -585,11 +587,15 @@ def expected_blocks(root: Path, brackets: Sequence[BracketConfig]) -> dict[tuple
     rows = parse_headline(_read(root, EXPERIMENTS))
     facts = repo_facts(root)
     results = render_rows(rows, RESULT_KEYS)
+    # No gallery until the capture run writes captures.json: the README shows no screenshot
+    # that does not exist (docs/DECISIONS.md#adr-docs-sync).
+    captures = root / CAPTURES
+    gallery = render_screenshots(load_captures(captures)) if captures.exists() else ""
     return {
         ("README.md", "demo"): render_demo(rows, facts=facts),
         ("README.md", "runtime"): render_rows(rows, RUNTIME_KEYS),
         ("README.md", "results"): results,
-        ("README.md", "screenshots"): render_screenshots(load_captures(root / CAPTURES)),
+        ("README.md", "screenshots"): gallery,
         ("README.md", "brackets"): render_brackets(brackets),
         ("README.md", "quality"): render_rows(rows, QUALITY_KEYS),
         ("CHANGELOG.md", "results"): results,

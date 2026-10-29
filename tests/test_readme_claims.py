@@ -10,9 +10,7 @@ import re
 from pathlib import Path
 
 import pytest
-from pydantic import ValidationError
 
-from alphaswarm.inference.config import InferenceConfig
 from alphaswarm.personas import DEFAULT_BRACKETS
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -29,7 +27,6 @@ FORBIDDEN_README_PATTERNS: tuple[tuple[str, str], ...] = (
         r"\b(Sovereigns|Whales|whales|Suits|Insiders|Doom-Posters|Policy Wonks|policy wonks)\b",
         "v1 bracket names; the swarm uses the v2 composition",
     ),
-    (r"report <cycle_id>", "the CLI takes `report --cycle <cycle_id>`"),
     (r"(?i)prebuilt `?dist/?`? ships", "frontend/dist/ is gitignored and must be built"),
     (r"\b(NewsAPI|EDGAR|Polygon|Reddit)\b", "only yfinance and RSS providers exist"),
     (r"(?i)post reads", "READ_POST edges are no longer written"),
@@ -42,6 +39,9 @@ FORBIDDEN_README_PATTERNS: tuple[tuple[str, str], ...] = (
         r"(?i)no data leaves|never leaves? (your|the) machine",
         "cloud roles send prompts off-machine; the advisory sends tickers after the opt-in",
     ),
+    (r"\bReAct\b|\bReACT\b", "the report is graph data plus one grounded orchestrator call"),
+    (r"alphaswarm\.web\.app:app\b", "launch with `alphaswarm web`; there is no module-level app"),
+    (r"(?i)\bD3\.js\b|D3 visualization", "the graph is React-rendered SVG with d3-scale only"),
 )
 
 
@@ -84,24 +84,6 @@ def test_readme_links_the_license_file() -> None:
 
 def test_readme_shows_no_prototype_screenshots() -> None:
     assert "docs/screenshots/" not in README.read_text(encoding="utf-8")
-
-
-def test_readme_inference_config_example_passes_the_strict_models() -> None:
-    """The README invites hand-editing .secrets/inference.json; its example must load.
-
-    The stored config rejects unknown keys and out-of-range limits, so an example
-    with a comment key or a renamed field would teach users to write a file the
-    backend refuses.
-    """
-    blocks = re.findall(r"```json\n(.*?)```", README.read_text(encoding="utf-8"), flags=re.DOTALL)
-    examples = [block for block in blocks if '"orchestrator"' in block and '"worker"' in block]
-    assert examples, "README.md no longer shows an inference.json example; drop this test with it"
-    for block in examples:
-        try:
-            InferenceConfig.model_validate_json(block)
-        except ValidationError as exc:
-            problems = [(err["loc"], err["type"]) for err in exc.errors(include_input=False, include_url=False)]
-            pytest.fail(f"README.md inference.json example fails the config models: {problems}")
 
 
 def test_env_example_never_sends_test_runs_to_the_dev_password() -> None:

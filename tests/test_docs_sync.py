@@ -626,3 +626,32 @@ def test_resume_does_not_promise_bit_exact_reproduction(ds: ModuleType) -> None:
     text = ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=_facts(ds))
     assert "so results reproduce" not in text
     assert "prompt hashes) so any run can be traced and re-run." in text
+
+
+def test_sync_leaves_the_gallery_empty_until_the_captures_exist(ds: ModuleType, tmp_path: Path) -> None:
+    root = _make_root(tmp_path, headline_md())
+    (root / "docs" / "media" / "captures.json").unlink()
+    ds.sync(root, DEFAULT_BRACKETS, write=True)
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert ds.block_body(readme, "screenshots") == ""
+    assert ds.sync(root, DEFAULT_BRACKETS, write=False) == []
+
+
+def test_render_screenshots_brings_its_own_heading(ds: ModuleType, tmp_path: Path) -> None:
+    path = tmp_path / "captures.json"
+    path.write_text(json.dumps(CAPTURES), encoding="utf-8")
+    assert ds.render_screenshots(ds.load_captures(path)).startswith("### Screenshots\n\n![")
+
+
+def test_repository_docs_are_in_sync(ds: ModuleType) -> None:
+    stale = ds.sync(ROOT, DEFAULT_BRACKETS, write=False)
+    assert stale == [], f"stale generated blocks {stale}; run: uv run python scripts/docs_sync.py write"
+
+
+def test_render_demo_says_an_unpublished_demo_is_not_live_yet(ds: ModuleType) -> None:
+    # The bundled demo cycle can be a fictional placeholder (docs/RUNBOOK.md), so neither line
+    # promises a real run; an unpublished demo is named as available once published.
+    local = ds.render_demo(_rows(ds, demo_url="not published"), facts=_facts(ds))
+    assert "available once published" in local and "VITE_DEMO=1" in local
+    for text in (local, ds.render_demo(_rows(ds), facts=_facts(ds))):
+        assert "real cycle" not in text

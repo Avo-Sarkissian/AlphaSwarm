@@ -1,393 +1,248 @@
 # AlphaSwarm
 
-**Multi-agent financial simulation engine that runs 100 AI personas through a multi-round consensus cascade (3 rounds by default). Local-first: inference runs on your own hardware, with optional cloud providers.**
+**A local-first simulation of how a market rumor spreads through a crowd: 100 LLM personas in 10 archetypes react to it, read each other, and move toward (or away from) consensus over two or three rounds, on one Mac.**
 
 [![CI](https://github.com/Avo-Sarkissian/AlphaSwarm/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Avo-Sarkissian/AlphaSwarm/actions/workflows/ci.yml)
 [![Coverage gate](https://img.shields.io/badge/coverage-%E2%89%A585%25%20gated-brightgreen)](.github/workflows/ci.yml)
 [![License](https://img.shields.io/github/license/Avo-Sarkissian/AlphaSwarm)](LICENSE)
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
-[![Ollama](https://img.shields.io/badge/inference-Ollama-orange.svg)](https://ollama.com/)
-[![Neo4j](https://img.shields.io/badge/graph-Neo4j-brightgreen.svg)](https://neo4j.com/)
-[![React](https://img.shields.io/badge/frontend-React%20%2B%20TS-61dafb.svg)](https://react.dev/)
-[![FastAPI](https://img.shields.io/badge/backend-FastAPI-009688.svg)](https://fastapi.tiangolo.com/)
 
-Feed it a market rumor. Watch 100 AI agents (institutions, sell-side analysts, quants, degens, short sellers, and more) independently analyze it, observe each other's positions, and iteratively converge toward consensus. Inference runs locally through Ollama by default; OpenAI-compatible and Anthropic providers are strictly opt-in (see [Cloud inference](#cloud-inference-optional)).
+<!-- demo:start -->
+**Demo:** a static, read-only replay of one cycle, available once published. Until then, build it locally with `VITE_DEMO=1 npm --prefix frontend run build && npm --prefix frontend run preview`.
+<!-- demo:end -->
 
----
+Feed it a rumor such as "Apple is acquiring Anthropic for $500B". An orchestrator model extracts the companies and sectors involved; then 100 agents (institutions, sell-side analysts, event-driven funds, quants, retail degens, media narrators, algos, macro funds, short sellers and long-horizon allocators) each decide buy, sell or hold with a confidence and a rationale. From the second round on, agents read a sample of their peers' rationales and their own previous position, and decide again. Every decision, citation and influence edge lands in Neo4j, and a live graph shows the cascade as it happens.
 
-## Screenshots
+Local-first: inference runs on your own Mac through Ollama by default, with optional cloud providers (OpenAI-compatible or Anthropic) chosen per role.
 
-Screenshots of a real run will be added here. The images that used to be here
-were captures of the design prototype's mock data, not of the shipped app, so
-they were removed.
+> LLM-generated simulation output for research and education; not investment advice. The report and the portfolio advisory come from language models reacting to a simulated crowd.
 
----
+## Why it's interesting
 
-## Key Features
-
-- **100 autonomous agents** across 10 market archetypes (v2 composition), each with its own biases and decision heuristics
-- **3-round iterative consensus** with independent analysis, peer influence, and final convergence producing measurable opinion shifts between rounds
-- **Dynamic influence topology** where agent-to-agent influence edges form organically from citation and agreement patterns via Neo4j graph
-- **React + FastAPI web dashboard** with a React-rendered SVG graph of the 100 agents (deterministic layout), live WebSocket at 5Hz, bracket panels, rationale feed, replay mode, and advisory panel
-- **Live graph memory** where Neo4j persists every decision, rationale episode, signal flip, and INFLUENCED_BY edge as queryable state
-- **Post-simulation capabilities** including click-to-interview any agent (multi-turn Q&A), replay past cycles from Neo4j state without re-inference, and market analysis reports built from the simulation data plus one grounded orchestrator call
-- **Dynamic persona generation** where the orchestrator extracts entities from the seed rumor to inject situation-specific bracket modifiers
-- **Shock injection** to inject disruptive news or events mid-simulation between rounds, prompting agents to re-evaluate with fresh context
-- **Memory-aware resource governance** with dynamic concurrency control via `psutil` and macOS memory-pressure monitoring, auto-throttle at 80% RAM, and pause at 90%
-- **Local-first** with a dual-model Ollama pipeline on MLX (27B dense orchestrator + 35B-A3B MoE worker), Neo4j in Docker, and optional OpenAI-compatible or Anthropic providers
-
----
-
-## How It Works
-
-```
-Seed Rumor --> Orchestrator (27B) --> Entity Extraction + Dynamic Persona Modifiers
-                                          |
-                    +---------------------+
-                    v
-              Round 1: 100 agents form independent signals (BUY / SELL / HOLD)
-                    |
-                    v  (optional Shock Injection)
-                    v
-              Round 2: Agents read selected peer rationales, revise positions
-                    |
-                    v  (optional Shock Injection)
-                    v
-              Round 3: Final convergence, consensus lock, influence edges solidify
-                    |
-                    +-> Per-agent decisions + public rationales
-                    +-> Bracket sentiment distribution
-                    +-> Neo4j graph of RationaleEpisodes and INFLUENCED_BY edges
-                    +-> Markdown report (simulation data + one grounded orchestrator call)
-                    +-> Live agent interviews (multi-turn Q&A post-simulation)
-```
-
----
-
-## Dashboards
-
-### Web UI (React + TypeScript + FastAPI) - Primary Interface
-
-```bash
-npm --prefix frontend ci && npm --prefix frontend run build   # once, and after frontend changes
-uv run alphaswarm web
-# Open http://localhost:8000
-```
-
-| Surface | Description |
-|---|---|
-| **Influence Graph** | 100 agent nodes in deterministic SVG clusters, color-coded by signal (BUY/SELL/HOLD), with INFLUENCED_BY edges |
-| **Control Bar** | Seed input, Start/Stop buttons, live phase indicator, inject-shock drawer |
-| **Rationale Feed** | Real-time scrolling stream of agent reasoning with animated entry transitions |
-| **Bracket Panel** | Per-archetype sentiment bar charts (SVG) updated after each round |
-| **Agent Interview Modal** | Click any agent post-simulation to open a multi-turn Q&A chat panel with restored persona |
-| **Replay Mode** | Cycle picker + round-by-round stepping to re-render past simulations from Neo4j (no re-inference) |
-| **Report Viewer** | Full-screen modal rendering the markdown report (sanitized via DOMPurify) with convergence and influence charts from the report's structured sections |
-| **Shock Injection** | Slide-down drawer to inject disruptive events between rounds during a live run |
-
----
-
-## Agent Archetypes
-
-The swarm models the active price-setting margin of the narrative ecosystem: who
-forms and spreads opinions about a rumor. Its 10 brackets are Institutions, Sell-Side,
-Event-Driven, Quants, Degens, Narrators, Algos, Macro, Shorts and Allocators. Passive
-index capital and market makers are left out on purpose. Counts, reach weights and
-prompts live in `DEFAULT_BRACKETS` in `src/alphaswarm/personas.py`.
-
----
+- **It is built to be measured, not just animated.** A seeded control group that sees no peers can separate peer influence from noise, and a point-in-time evaluation harness compares the swarm with single-model baselines on real outcomes under pre-registered metrics. Method: [docs/methodology.md](docs/methodology.md); what has been measured so far: [Results](#results).
+- **100 concurrent model calls on one laptop without swapping it to death.** Agent calls fan out through `asyncio.TaskGroup`, and a governor that reads the macOS kernel's memory signal throttles and pauses them before memory runs out ([governor.py](src/alphaswarm/governor.py), [why](docs/DECISIONS.md#adr-governor)).
+- **Privacy enforced by the build, not by convention.** Portfolio holdings never reach agent prompts, Neo4j, WebSocket frames or logs; an import-linter contract and canary tests fail CI if code could leak them ([pyproject.toml](pyproject.toml), [tests/invariants/](tests/invariants/), [SECURITY.md](docs/SECURITY.md)).
+- **Every run is traceable.** Each cycle stores a manifest with seeds, model digests, prompt hashes and settings ([manifest.py](src/alphaswarm/manifest.py), [why](docs/DECISIONS.md#adr-run-manifest)).
+- **Model choices come from measurements.** Prefill benchmarks picked the MLX model stack, and every inference call records its prefill, decode and load times ([experiments.md](docs/experiments.md#model-stack-benchmarks-2026-06-11), [call_log.py](src/alphaswarm/inference/call_log.py)).
 
 ## Architecture
 
-```
-+----------------------------------------------------------------+
-|                         AlphaSwarm                              |
-|                                                                 |
-|  +--------------+   +--------------+   +------------------+   |
-|  |   Ollama     |   |  Simulation  |   |  React + TS SPA  |   |
-|  |   27B/35B    |<->|   Engine     |-->|  (SVG agent      |   |
-|  |   Models     |   |  (asyncio)   |   |   graph, replay) |   |
-|  +--------------+   +------+-------+   |                  |   |
-|         ^                  |           +--------^---------+   |
-|         |                  v                    | WebSocket + |
-|         |           +--------------+            | REST        |
-|         |           |    Neo4j     |    +-------+---------+   |
-|         |           |  Graph DB    |<-->|    FastAPI      |   |
-|         |           |  (Docker)    |    | (broadcaster,   |   |
-|         |           +--------------+    |  simulation     |   |
-|         |                               |  manager,       |   |
-|  +------+----------------------------+  |  replay, report)|   |
-|  |      Resource Governor            |  +-----------------+   |
-|  |  psutil, dynamic semaphore        |                        |
-|  |  throttle @80%, pause @90%        |                        |
-|  +-----------------------------------+                        |
-+----------------------------------------------------------------+
+```mermaid
+flowchart LR
+  ui["Browser: React + TypeScript SPA<br/>SVG influence graph"]
+  subgraph web["alphaswarm web: one FastAPI process"]
+    api["REST /api/*"]
+    ws["WebSocket /ws/state<br/>5 Hz snapshots"]
+    sim["SimulationManager"]
+    engine["Engine<br/>seed, rounds, peers, metrics"]
+    ctrl["ResourceGovernor (local)<br/>RateLimitController (cloud)"]
+    svc["Services<br/>report, advisory, jobs"]
+    store["StateStore"]
+  end
+  ollama["Ollama on MLX<br/>orchestrator 27B, worker 35B-A3B"]
+  cloud["Optional cloud providers<br/>OpenAI-compatible, Anthropic"]
+  neo4j[("Neo4j 5.26<br/>Docker, loopback only")]
+  holdings[/"Holdings CSV<br/>advisory only"/]
+  ui -->|REST| api
+  ws -->|frames| ui
+  api --> sim --> engine
+  engine --> ctrl
+  engine -->|InferenceProvider| ollama
+  engine -.->|opt-in| cloud
+  engine --> neo4j
+  engine --> store --> ws
+  api --> svc --> neo4j
+  holdings --> svc
 ```
 
-## Tech Stack
+One Python process serves the API, the live WebSocket stream and the built UI, and runs one simulation at a time. The orchestrator and the worker model take turns: they are never loaded together during rounds. Module map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Graph model: [docs/graph-schema.md](docs/graph-schema.md).
 
-| Layer | Technology |
+## Quick start
+
+You need an Apple Silicon Mac with 64 GB of memory, Python 3.11+, [uv](https://docs.astral.sh/uv/), Node 22 (`frontend/.nvmrc`), [Docker Desktop](https://www.docker.com/products/docker-desktop/) and [Ollama](https://ollama.com/) with the MLX backend (tested with 0.30.7).
+
+```bash
+git clone https://github.com/Avo-Sarkissian/AlphaSwarm.git && cd AlphaSwarm && uv sync && npm --prefix frontend ci && npm --prefix frontend run build
+./scripts/configure_ollama_app_env.sh && osascript -e 'quit app "Ollama"' && sleep 3 && open -a Ollama
+ollama pull qwen3.6:35b-a3b-nvfp4 && ollama pull qwen3.6:27b-nvfp4 && ollama create alphaswarm-worker -f modelfiles/Modelfile.worker && ollama create alphaswarm-orchestrator -f modelfiles/Modelfile.orchestrator
+cp .env.example .env && sed -i '' "s/^ALPHASWARM_NEO4J__PASSWORD=$/ALPHASWARM_NEO4J__PASSWORD=$(openssl rand -hex 32)/" .env && docker compose up -d --wait neo4j
+uv run alphaswarm doctor && uv run alphaswarm web   # then open http://localhost:8000
+```
+
+1. Installs the Python and frontend dependencies and builds the UI (`frontend/dist/` is not committed; without it, http://localhost:8000 shows a page with the build command).
+2. Gives Ollama.app the server environment AlphaSwarm needs (`OLLAMA_USE_MLX=1`, `OLLAMA_NUM_PARALLEL=4`, two loaded models) through `launchctl` plus a LaunchAgent that survives reboots, then restarts the app.
+3. Downloads the two MLX models and registers the aliases the code calls.
+4. Creates `.env` with a random Neo4j password and starts Neo4j on 127.0.0.1 only.
+5. `doctor` checks the inference config, Neo4j, Docker, Ollama and both aliases, the MLX backend on the running server, the launchd environment, stray loaded models, the UI build and memory, and prints the fix for anything missing. The web server then applies the Neo4j schema and seeds the 100 agent nodes on startup.
+
+### Model setup
+
+- **Ollama.app** reads its environment from `launchctl`; `./scripts/configure_ollama_app_env.sh` sets it and installs a LaunchAgent so it survives reboots. Restart the app after running it.
+- **Terminal Ollama:** run `./scripts/start_ollama.sh` instead of the app.
+- **Check the MLX backend:** `grep "MLX engine initialized" ~/.ollama/logs/server.log | tail -1`. Without `OLLAMA_USE_MLX=1`, Ollama silently falls back to a much slower backend; `doctor` reports it.
+- After editing a Modelfile, re-run its `ollama create` line. Details and rollback models: [docs/RUNBOOK.md](docs/RUNBOOK.md#2-models).
+
+### Hardware and run time
+
+<!-- runtime:start -->
+| Result | Value | Source |
+|---|---|---|
+| Model memory (loaded, Ollama) | not measured | [Memory budget](docs/RUNBOOK.md#memory-budget): not measured yet |
+| 3-round run, median wall time | not measured | [Arms](docs/experiments.md#arms): no runs recorded |
+| 2-round run, median wall time | not measured | [Ablation protocol](docs/methodology.md): no runs recorded |
+<!-- runtime:end -->
+
+Per-phase memory, Neo4j caps and headroom: [RUNBOOK, memory budget](docs/RUNBOOK.md#memory-budget). On a smaller machine, use the optional cloud providers for one or both roles.
+
+### Running it
+
+| Command | What it does |
 |---|---|
-| Language | Python 3.11+ with strict typing |
-| Concurrency | `asyncio`, 100% non-blocking, `TaskGroup`-based dispatch |
-| Inference | Ollama (default): `qwen3.6:27b-nvfp4` orchestrator, `qwen3.6:35b-a3b-nvfp4` workers; optional cloud via OpenAI-compatible or Anthropic provider |
-| Graph State | Neo4j Community: cycle-scoped edges, UNWIND batch writes, async driver |
-| Web Backend | FastAPI + `uvicorn`, WebSocket broadcaster @ ~5Hz, drop-oldest backpressure |
-| Web Frontend | React + TypeScript + Vite; React-rendered SVG, deterministic layout, d3-scale; `marked` + DOMPurify for report render |
-| Validation | Pydantic + pydantic-settings |
-| Logging | structlog (structured JSON with per-agent correlation IDs) |
-| Package Manager | uv |
+| `uv run alphaswarm web [--host 127.0.0.1] [--port 8000]` | Web UI and API (same as `uv run start`) |
+| `uv run alphaswarm run "<rumor>"` | Headless run with live progress, then a report |
+| `uv run alphaswarm inject "<rumor>"` | Seed only: entity extraction and persona modifiers, no rounds |
+| `uv run alphaswarm report [CYCLE_ID]` | Report for a cycle (default: the latest complete one) |
+| `uv run alphaswarm cycles list` / `export CYCLE_ID` / `delete CYCLE_ID` | Stored cycles; an export is a portable JSON file |
+| `uv run alphaswarm doctor [--json]` | Preflight checks with fixes |
 
----
+`ALPHASWARM_NUM_ROUNDS=2` runs a shorter two-round cascade. For frontend work, `npm --prefix frontend run dev` serves the UI with hot reload on http://localhost:5173 and proxies the API. To serve the UI from another host or origin, set `ALPHASWARM_ALLOWED_ORIGINS` and `ALPHASWARM_TRUSTED_HOSTS` (see `.env.example`).
 
-## Quick Start
+### Try the advisory with example holdings
 
-### Prerequisites
-
-| Tool | Purpose |
-|---|---|
-| [Python 3.11+](https://www.python.org/downloads/) | Runtime |
-| [uv](https://docs.astral.sh/uv/) | Package manager |
-| [Ollama](https://ollama.com/) | Local LLM inference |
-| [Docker Desktop](https://www.docker.com/products/docker-desktop/) | Runs Neo4j |
-| [Node 22+](https://nodejs.org/) | Builds the web UI (required: `frontend/dist/` is not committed) |
-
-**Hardware target:** Apple Silicon with 64GB unified memory. The resource governor dynamically adjusts concurrency for available RAM.
-
-### 1. Install
-
-```bash
-git clone https://github.com/Avo-Sarkissian/AlphaSwarm.git
-cd AlphaSwarm
-uv sync
-```
-
-### 2. Build models
-
-```bash
-ollama create alphaswarm-orchestrator -f modelfiles/Modelfile.orchestrator
-ollama create alphaswarm-worker -f modelfiles/Modelfile.worker
-```
-
-### 3. Start Neo4j (first time only)
-
-```bash
-export ALPHASWARM_NEO4J__PASSWORD="$(openssl rand -hex 32)"
-docker compose up -d
-```
-
-Neither the container nor the application carries a default Neo4j password.
-`docker compose up` aborts when `ALPHASWARM_NEO4J__PASSWORD` is unset or empty,
-and the app raises an explicit error instead of opening a Neo4j connection in
-the same case. Compose publishes Bolt (7687) and the browser (7474) on
-`127.0.0.1` only, so the database is not reachable from your LAN.
-
-Persist the value so every later `docker compose` command and app run can read
-it — Compose and the app both read `.env` from the repo root, and `.env` is
-gitignored:
-
-```bash
-cp .env.example .env   # then set ALPHASWARM_NEO4J__PASSWORD=<the value you generated>
-```
-
-Prefer `openssl rand -hex 32`: hex keeps the value clear of `/` (the separator
-in `NEO4J_AUTH`) and `$` (special inside `.env` values).
-
-Tests never use this database or password: the Neo4j tests run against a
-throwaway `neo4j-test` container on `127.0.0.1:7688`
-(`scripts/neo4j_test.sh up`, then `uv run pytest -m neo4j --require-neo4j`).
-
-#### Migrating an existing Neo4j
-
-**If you started it with the old `docker run --name neo4j` recipe.** That
-container publishes 7474/7687 on every interface with the old `alphaswarm`
-password, and holds those ports, so `docker compose up -d` cannot bind them
-until it is gone. Its data also sits on an *anonymous* volume that Compose's
-named volume does not adopt — the graph does not carry over on its own. Dump it
-first:
-
-```bash
-./scripts/backup_neo4j.sh   # writes data/backups/ (set ALPHASWARM_NEO4J_CONTAINER=neo4j if it finds two)
-docker rm -f neo4j          # frees the ports and retires the old credential
-export ALPHASWARM_NEO4J__PASSWORD="$(openssl rand -hex 32)"
-docker compose up -d        # starts alphaswarm-neo4j on 127.0.0.1 with your password
-```
-
-To carry the old graph across, load the dump with the restore command the backup
-script prints, substituting `alphaswarm-neo4j` for the container name (the
-printed sequence already copies the dump to `neo4j.dump`, the only name
-`neo4j-admin database load` reads). The server you load into must be able to read that store: the
-old recipe's floating `neo4j:community` tag is now a 2026.x release while this
-repo pins `neo4j:5.26-community`, so if the load is rejected, pin `image:` in
-`docker-compose.yml` to the version you dumped from. Credentials are not part of
-a database dump — they live in the `system` database — so the restored graph
-uses your new password.
-
-**If you were already using `docker compose up -d`.** The named volume is
-already initialized, and `NEO4J_AUTH` only takes effect when a volume is
-initialized, so a new value in the environment will *not* change the stored
-password. Rotate it in place, then recreate the container with the same new
-value so its `NEO4J_AUTH` — and the healthcheck derived from it — agree:
-
-```bash
-docker exec -it alphaswarm-neo4j \
-  cypher-shell -u neo4j -p alphaswarm -d system \
-  "ALTER CURRENT USER SET PASSWORD FROM 'alphaswarm' TO '<new-password>'"
-export ALPHASWARM_NEO4J__PASSWORD='<new-password>'
-docker compose up -d
-```
-
-(`docker compose down -v` also works, at the cost of deleting the graph.)
-
-### 4. Run
-
-**Web UI (recommended):**
-
-```bash
-npm --prefix frontend ci && npm --prefix frontend run build   # once, and after frontend changes
-uv run alphaswarm web                                          # or: uv run start
-# Open http://localhost:8000
-```
-
-**Other CLI entrypoints:**
-
-```bash
-uv run alphaswarm run "Apple acquiring Anthropic for $500B"   # headless sim + markdown report
-uv run alphaswarm run "rumor text" --context-fixture <file>   # point-in-time market block, no live fetch
-uv run alphaswarm run "rumor text" --no-market-context        # no market block, no live fetch
-uv run alphaswarm inject "rumor text"                         # entity extraction only (a seed-only cycle, stored as failed)
-uv run alphaswarm report --cycle <cycle_id>                   # report for a past cycle (default: latest complete)
-```
-
-### 5. Frontend development (optional)
-
-```bash
-cd frontend
-npm install
-npm run dev    # hot-reload Vite dev server
-npm run build  # production build to frontend/dist/
-```
-
----
-
-## Cloud inference (optional)
-
-Local Ollama is the default — no cloud credentials are needed.
-
-To use an API-backed model for the orchestrator, the swarm (worker), or both, open **Settings** in the web UI and choose a provider for each role:
-
-| Provider | When to use |
-|---|---|
-| **Local (Ollama)** | Default; zero cost, runs entirely on-device |
-| **OpenAI-compatible** | OpenAI, OpenRouter, Together, Groq, or any self-hosted vLLM endpoint — set `base_url` + API key |
-| **Anthropic** | Native Claude API — set API key only |
-
-The orchestrator and worker roles are configured independently, so you can mix (e.g. local orchestrator + cloud swarm).
-
-Configuration is persisted in `.secrets/inference.json` (gitignored, never logged). The file is created automatically when you save from the Settings UI. You can also edit it by hand:
-
-```json
-{
-  "orchestrator": {
-    "provider": "ollama",
-    "model": "alphaswarm-orchestrator",
-    "base_url": "http://localhost:11434",
-    "api_key": null
-  },
-  "worker": {
-    "provider": "openai_compatible",
-    "model": "gpt-4o-mini",
-    "base_url": "https://api.openai.com/v1",
-    "api_key": "sk-..."
-  },
-  "limits": {
-    "openai_compatible": { "requests_per_min": 60, "tokens_per_min": 100000 }
-  },
-  "spend_cap_usd": "5.00",
-  "pricing_overrides": {},
-  "allow_cloud_advisory": false
-}
-```
-
-Cloud runs are paced to your provider's RPM/TPM limits via token-bucket rate limiting. A **hard spend cap** (USD) aborts the run gracefully when reached. Before each cloud or mixed run the UI shows a pre-run cost estimate (low / high) and requires confirmation. API keys are redacted from all logs and never returned raw by the API.
-
-By default the portfolio advisory runs only with a local orchestrator. With a cloud or remote orchestrator (a cloud provider, an Ollama cloud model, or an Ollama server off this machine) the advisory is skipped, and the report still runs, unless you tick **Allow cloud advisory** in Settings → Model (`allow_cloud_advisory` in the file). With it ticked, the advisory sends only your held tickers to the orchestrator, never quantities or cost basis.
-
-## Configuration
-
-Copy `.env.example` to `.env` and adjust as needed:
-
-```bash
-cp .env.example .env
-```
-
-Key settings:
-
-```env
-ALPHASWARM_GOVERNOR__BASELINE_PARALLEL=8          # starting concurrent agent slots
-ALPHASWARM_GOVERNOR__MAX_PARALLEL=16              # max slots under low memory pressure
-ALPHASWARM_GOVERNOR__MEMORY_THROTTLE_PERCENT=80.0 # begin throttling
-ALPHASWARM_GOVERNOR__MEMORY_PAUSE_PERCENT=90.0    # pause inference queue
-```
-
-### Try the advisory with example holdings (optional)
-
-The advisory cross-references the swarm's consensus with a portfolio after each
-run started from the web UI. It needs a holdings CSV; without one the advisory is
-skipped and the report still runs. To try it with fictional positions:
+The advisory cross-references the swarm's consensus with a portfolio after each run. Without a holdings file it is skipped and the report still runs. To try it with fictional positions:
 
 ```bash
 echo 'ALPHASWARM_HOLDINGS_CSV_PATH=examples/holdings.example.csv' >> .env
 ```
 
-Settings in `.env` are read when the server starts, so restart it after adding
-the line. Relative paths resolve against the repository root; after that, the
-CSV itself is re-read whenever it changes, with no restart.
+The server reads `.env` once at startup, so restart the server after appending. The file has four columns, `account,symbol,shares,cost_basis_per_share`, one row per lot. Relative paths resolve against the repository root. Holdings never reach agent prompts, Neo4j, WebSocket frames or logs.
 
-The file has four columns: `account,symbol,shares,cost_basis_per_share` (one row
-per lot; `account` is a free-text label such as `brokerage`). Header names ignore
-case and surrounding spaces. Symbols are trimmed and upper-cased. A file that is
-not UTF-8 text (in Excel, save as *CSV UTF-8*), or a row with an empty symbol or
-a negative, NaN or infinite number, makes the whole file invalid: the advisory is
-skipped (and `/api/holdings` answers 503 `holdings_unavailable`) until the file
-is fixed; the server log gives the reason (and the row number for a bad row),
-never the row's contents. Holdings never reach the swarm's agent prompts, Neo4j,
-WebSocket frames or logs. With a cloud or remote orchestrator the advisory also
-needs **Allow cloud advisory** in Settings → Model (see Cloud inference above).
+### Optional cloud providers
 
-The advisory tags each holding with a sector from a local map,
-`data/sector_map.local.json` (gitignored, never committed;
-`ALPHASWARM_SECTOR_MAP_PATH` overrides the path). Until that file exists the
-fictional `examples/sector_map.example.json` is used: your real tickers then get
-the `unknown` sector and the server log says how to create the file. To set it up,
-copy the example to `data/sector_map.local.json` and replace its entries with your
-holdings; it is read on every advisory run, so edits apply without a restart.
-Advisory files are written owner-only, and only the newest 20 are kept
-(`ALPHASWARM_ADVISORY_KEEP_LAST`).
+Open **Settings** in the UI and pick a provider per role: local Ollama (default), any OpenAI-compatible endpoint, or Anthropic. The choice and the API keys live in `.secrets/inference.json` (owner-only permissions, gitignored, never logged or returned by the API). Cloud runs are paced to your rate limits, stop at a hard spend cap and show a cost estimate before they start. A cloud orchestrator receives held tickers for the advisory only after you turn on the opt-in in Settings, and never quantities or cost basis. File reference: [RUNBOOK, cloud mode](docs/RUNBOOK.md#cloud-mode-quick-reference).
 
----
+## Results
 
-## What's Shipped
+Each row links to its protocol or its full table; a row that reads `not measured` has not been run yet, and nothing here is estimated. Measured rows come from an Apple M1 Max with 64 GB.
 
-**v1.0 Core Engine:** async batched Ollama inference, dynamic resource governor, Neo4j graph state, 100-agent swarm across 10 brackets, 3-round consensus cascade, dynamic influence topology, and a terminal dashboard (later retired in favour of the web UI).
+<!-- results:start -->
+| Result | Value | Source |
+|---|---|---|
+| Swarm accuracy vs the best single-model baseline | not measured | [Evaluation protocol](docs/methodology.md): no runs recorded |
+| Peer-attributable flip rate (treated − control) | not measured | Control group: no runs recorded |
+| 2 vs 3 rounds | not measured | [Ablation protocol](docs/methodology.md): no runs recorded |
+| Peer strategy: stratified vs random vs none | not measured | [Ablation protocol](docs/methodology.md): no runs recorded |
+| Peer exposure before → after the selector fix | brackets never shown: 6 → 0; largest slot share: 46.0% → 15.2%; agents shown: 46 → 100 (Round 2) | [Decision](docs/DECISIONS.md#adr-diverse-peer-context) |
+| Mean round time before → after the performance work | not measured | [Arms](docs/experiments.md#arms): no runs recorded |
+| Worker prefill, GGUF → MLX | 833 → 2,361 tok/s (2.8×, GGUF MoE → MLX MoE) | [Model stack benchmarks](docs/experiments.md#model-stack-benchmarks-2026-06-11) |
+| Orchestrator prefill, GGUF → MLX | 111 → 3,395 tok/s (30.6×, same 27B weights) | [Model stack benchmarks](docs/experiments.md#model-stack-benchmarks-2026-06-11) |
+<!-- results:end -->
 
-**v2.0 Engine Depth:** live graph memory (RationaleEpisode nodes, narrative edges), richer agent interactions (public rationale posts, token-budget-aware peer context), dynamic persona generation, post-simulation agent interviews, markdown analysis reports.
+## How it works
 
-**v3.0 Stock-Specific Recommendations:** ticker extraction, a market-data pipeline and per-ticker decisions. Lost in a bad merge on 2026-04-09; the real-data work was rebuilt differently in v6.0.
+1. **Seed.** The orchestrator reads the rumor, extracts the entities and writes a short modifier per bracket ([seed.py](src/alphaswarm/seed.py)). The cycle and its entities are written to Neo4j in one transaction.
+2. **Round 1.** All agents decide independently: buy, sell or hold, a confidence, a sentiment and a short rationale, decoded against a JSON schema with a three-tier parse fallback ([worker.py](src/alphaswarm/worker.py)). Prices and headlines for the named tickers, from yfinance and RSS, go into the prompt as a fenced data block.
+3. **Later rounds.** Agents read a seeded, bracket-diverse sample of other agents' previous rationales plus their own previous position, then decide again ([peers.py](src/alphaswarm/peers.py), [rounds.py](src/alphaswarm/rounds.py)). A seeded control group can be held out with no peers, which is how the peer effect is measured. A shock injected mid-run reaches every later round.
+4. **Persist and measure.** Each round is written in one transaction: decisions, citations, rationale episodes and influence edges ([graph/](src/alphaswarm/graph/)). Flips, consensus with confidence intervals, peer exposure and per-call telemetry land on the cycle ([metrics.py](src/alphaswarm/metrics.py), [consensus.py](src/alphaswarm/consensus.py)).
+5. **After the run.** A report built from the graph plus one grounded orchestrator call, the optional advisory, agent interviews, replay and a portable JSON export ([services/](src/alphaswarm/services/), [export.py](src/alphaswarm/export.py)).
 
-**v4.0 Interactive Simulation & Analysis:** shock injection core (disruptive event injection between rounds), shock analysis and reporting, simulation replay from stored Neo4j state.
+Agent calls run concurrently under a `ConcurrencyController`: the memory governor locally, a token-bucket rate limiter for cloud providers.
 
-**v5.0 Web UI:** FastAPI + WebSocket backend, a Vue 3 + D3 single-page app (replaced by the current React + TypeScript UI during v6.0), REST simulation controls + ControlBar, web monitoring panels (rationale feed, bracket charts), replay mode UI, agent interview chat panel, shock injection drawer, browser-based report viewer.
+<!-- screenshots:start -->
+<!-- screenshots:end -->
 
-**v6.0 Data Enrichment & Personalized Advisory (in progress):** holdings CSV ingestion, real market data context (yfinance and RSS headlines), optional cloud inference providers, per-archetype data tailoring, and a personalized advisory layer where the orchestrator cross-references swarm consensus against your portfolio with strict information isolation.
+## Swarm composition
 
----
+The swarm models the active price-setting margin of the narrative ecosystem: who forms and spreads opinions about a rumor, not who holds the most capital. Passive index capital (it never reacts to rumors) and market makers (their honest answer is "quote both sides", which buy/sell/hold cannot express) are left out on purpose ([why](docs/DECISIONS.md#adr-swarm-composition-v2)).
+
+<!-- brackets:start -->
+| Bracket | Agents | Reach weight | Temperature | Role |
+|---|---:|---:|---:|---|
+| Institutions | 18 | 0.65 | 0.40 | Benchmark-bound buy-side managers; act on corroborated news, default to HOLD |
+| Sell-Side | 10 | 0.75 | 0.50 | Research analysts who frame the story; lean BUY or HOLD and move fast |
+| Event-Driven | 10 | 0.60 | 0.50 | Merger-arb and catalyst funds; price the odds that the event happens |
+| Quants | 12 | 0.55 | 0.30 | Statistical models over narrative; HOLD without significant data |
+| Degens | 15 | 0.50 | 1.10 | Leveraged retail momentum traders; rarely HOLD |
+| Narrators | 8 | 0.70 | 0.90 | Media and FinTwit voices; amplify the winning story, hold no positions |
+| Algos | 8 | 0.45 | 0.15 | Systematic strategies; trade only on measurable signals |
+| Macro | 7 | 0.55 | 0.50 | Rates, policy and cross-asset regimes; reason about second-order effects |
+| Shorts | 7 | 0.60 | 0.80 | Forensic short sellers; lean SELL on hype |
+| Allocators | 5 | 0.60 | 0.40 | Decades-horizon capital; rebalance against crowd extremes |
+| **Total** | **100** | | | |
+<!-- brackets:end -->
+
+Reach weight is narrative reach, how visible an agent's view is to its peers, not capital ([why](docs/DECISIONS.md#adr-influence-weight-reach)). The mix of tendencies is deliberate: four brackets lean HOLD, four lean toward acting, one leans SELL and one reasons about second-order effects.
+
+## Design decisions
+
+- **Local-first inference, cloud strictly opt-in** ([decision](docs/DECISIONS.md#adr-local-first-inference)).
+- **At most two models loaded; orchestrator and worker take turns** ([decision](docs/DECISIONS.md#adr-sequential-model-lifecycle)).
+- **A narrative-ecosystem swarm with deliberate exclusions** ([decision](docs/DECISIONS.md#adr-swarm-composition-v2)).
+- **Peers sampled per reader with bracket diversity and a seeded shuffle** ([decision](docs/DECISIONS.md#adr-diverse-peer-context)).
+- **A deterministic graph layout instead of a physics simulation** ([decision](docs/DECISIONS.md#kr-41-1-01)).
+- **Holdings isolation enforced by import contracts** ([decision](docs/DECISIONS.md#adr-holdings-isolation)).
+- **A run manifest on every cycle** ([decision](docs/DECISIONS.md#adr-run-manifest)).
+- **Schema-constrained decoding with a three-tier parse fallback** ([decision](docs/DECISIONS.md#adr-structured-output)).
+- **WebSocket frames at 5 Hz, sent on change, with latest-wins client queues** ([decision](docs/DECISIONS.md#adr-ws-broadcaster)).
+- **A hero graph that answers "who influenced whom"** ([decision](docs/DECISIONS.md#adr-hero-graph)).
+- **A portable cycle export with no holdings in it** ([decision](docs/DECISIONS.md#adr-cycle-export)).
+
+Every decision, including the ones later revised, is in [docs/DECISIONS.md](docs/DECISIONS.md).
+
+## Testing & CI
+
+<!-- quality:start -->
+| Result | Value | Source |
+|---|---|---|
+| Backend tests (offline suite; Neo4j suite not measured) | 2,284 | [Test suite](docs/experiments.md#test-suite-v60) |
+| Backend coverage (line + branch, offline suite) | 91% | [Test suite](docs/experiments.md#test-suite-v60) |
+| Frontend tests (vitest) | 392 | [Test suite](docs/experiments.md#test-suite-v60) |
+| Import-linter contracts kept | 1 | [Test suite](docs/experiments.md#test-suite-v60) |
+<!-- quality:end -->
+
+The CI and coverage-gate badges at the top of this page track `master`. CI runs four jobs on every push: **lint** (ruff, ruff format, mypy strict, import-linter, vulture), **backend-unit** (the offline suite with a coverage gate), **backend-neo4j** (graph tests and golden read models against a throwaway Neo4j) and **frontend** (ESLint, knip, vitest and the production build). Live-network tests run nightly. Locally:
+
+```bash
+uv run pytest -q -m "not neo4j"                                      # offline suite
+scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j  # throwaway Neo4j on 127.0.0.1:7688
+npm --prefix frontend run lint && npm --prefix frontend test && npm --prefix frontend run build
+```
+
+The Neo4j tests refuse to start against the development database. Frontend testing notes: [frontend/TESTING.md](frontend/TESTING.md).
 
 ## Security
 
-See [docs/SECURITY.md](docs/SECURITY.md) for the threat model, the mitigations, the known
-limitations and how to report a vulnerability.
+Threat model, mitigations and known limitations: [docs/SECURITY.md](docs/SECURITY.md). In short:
+
+- Neo4j listens on 127.0.0.1 only and has a per-install password; nothing in the repository holds a credential.
+- Every request and the WebSocket are checked against the allowed hosts, and state-changing routes and the WebSocket check the Origin header.
+- Untrusted text (RSS headlines, peer rationales) is sanitized and fenced in the user message, never placed in the system role.
+- API keys live in an owner-only file and are redacted from logs.
+- Portfolio data is isolated as described above and reaches a cloud model only after an explicit opt-in.
+
+## Limitations
+
+- **A simulation, not a market.** Signals are opinions, not trades, and two real participant groups are excluded on purpose (see Swarm composition).
+- **Public information only.** Agents see the rumor, injected shocks, public prices and headlines, and their peers; there is no private information.
+- **Small samples.** The evaluation set and the seed counts are small; [docs/methodology.md](docs/methodology.md) states the sizes and the pre-registered metrics.
+- **Not bit-exact.** Seeds make peer selection and control assignment repeatable, but batched decoding on a local server is not bit-exact, so reruns can differ in a few decisions.
+- **Hardware.** The local path needs a 64 GB Apple Silicon Mac; smaller machines need the cloud path for at least one role.
+- **Single user.** There is no authentication; keep the server on loopback.
+
+## Roadmap
+
+Data sources today: yfinance prices and Google News and Yahoo Finance RSS headlines ([ingestion/](src/alphaswarm/ingestion/)). Planned, not built:
+
+- SEC filings and earnings-call transcripts as point-in-time context providers.
+- A larger, out-of-sample event set for the evaluation.
+- A Linux and NVIDIA profile for local inference (the memory signal and the model stack are macOS and MLX today).
+
+Open defects and ideas: [docs/BACKLOG.md](docs/BACKLOG.md).
+
+## Engineering process
+
+AlphaSwarm is a solo project built with AI coding assistants. I set the architecture, the swarm design, the privacy model and the recorded decisions in [docs/DECISIONS.md](docs/DECISIONS.md); the assistants drafted much of the code and the tests under plans I reviewed. Changes land with tests, CI gates lint, types, import contracts, coverage and golden tests, and an October 2026 audit of the whole system drove the work listed in [CHANGELOG.md](CHANGELOG.md). The mistakes are written down too: agent merges once deleted large amounts of work, which is why I check the diffstat of every agent merge before trusting it ([lessons](docs/HISTORY.md#lessons-worth-keeping)).
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+MIT. See [LICENSE](LICENSE). Release history: [CHANGELOG.md](CHANGELOG.md).
