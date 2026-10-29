@@ -8,6 +8,7 @@ import { replaySeek, replayStop } from '../../api/replay';
 import { Icon } from '../../components/Icon';
 import { InlineError } from '../../components/InlineError';
 import { useFrameMeta } from '../../context/FrameMetaContext';
+import { demoLock } from '../../data-source';
 import { useCascadePlayer } from '../../hooks/useCascadePlayer';
 import { useRounds } from '../../hooks/useRounds';
 import { formatApiError } from '../../lib/apiError';
@@ -21,6 +22,7 @@ export function ReplayBar() {
   const { play } = cascade;
   const [exitError, setExitError] = useState<string | null>(null);
   const [exiting, setExiting] = useState(false);
+  const lock = demoLock();
 
   useEffect(() => {
     if (takeCascadeAutoplay(cycleId)) play();
@@ -84,9 +86,11 @@ export function ReplayBar() {
       <button type="button" className="btn" onClick={cascade.playing ? cascade.stop : play}>
         {cascade.playing ? 'Pause cascade' : 'Play cascade'}
       </button>
-      <button type="button" className="btn" onClick={exit} disabled={exiting}>
-        Exit replay
-      </button>
+      {lock.locked ? null : (
+        <button type="button" className="btn" onClick={exit} disabled={exiting}>
+          Exit replay
+        </button>
+      )}
       <InlineError
         error={exitError ?? cascade.error}
         onDismiss={() => {

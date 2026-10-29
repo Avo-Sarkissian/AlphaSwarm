@@ -241,6 +241,21 @@ Results go to `docs/experiments.md` with cycle ids and the git SHA.
 - Free models (the NVIDIA NIM free tier) are not in the pricing table. With a spend cap set they are priced at the conservative ceiling, so add `pricing_overrides` entries with `"0"` prices or leave the cap unset. `GET /api/settings/estimate` lists them in `unpriced_models`.
 - `DEFAULT_PRICING` is re-checked against the vendor pages at least every 180 days: `PRICING_VERIFIED_AT` in `inference/budget.py`, and `tests/inference/test_budget.py::TestPricingTable::test_pricing_table_was_verified_recently` fails when it is stale.
 
+### Static demo and hero GIF
+
+```bash
+cd frontend
+VITE_DEMO=1 VITE_BASE=/AlphaSwarm/ npm run build          # what GitHub Pages builds
+VITE_BASE=/AlphaSwarm/ npx vite preview --port 4173       # open http://localhost:4173/AlphaSwarm/
+npm run build                                             # restore the live build FastAPI serves at /
+```
+
+- `frontend/public/demo/` ships a fictional placeholder (the seeded ZZZT/QQQX cycle) until a real cycle is curated.
+- Refresh the recorded cycle: `uv run alphaswarm cycles export <id> -o frontend/public/demo/<id>.json`, update `frontend/public/demo/index.json`, run both count-only scans (`scripts/privacy_scan.py --paths …`, `scripts/ticker_scan.py …`), read the `seed_rumor` and `report_markdown` yourself, and delete the old export.
+- Publish: `.github/workflows/pages.yml` runs only by hand (Actions → Pages → Run workflow, or `gh workflow run pages.yml --ref master`) and needs GitHub Pages set to "Source: GitHub Actions".
+- Regenerate the hero GIF: record the preview (`Cmd+Shift+5`); convert it: `ffmpeg -y -i <recording> -vf "fps=12,scale=1200:-1:flags=lanczos,split[s0][s1];[s0]palettegen=max_colors=128[p];[s1][p]paletteuse=dither=bayer" -loop 0 docs/media/hero-cascade.gif` (keep it under 8 MB).
+- The demo never calls a backend: every API call is answered in the browser or refused with `demo_unavailable` (`docs/DECISIONS.md#adr-cycle-export`).
+
 ## 5. Full-run smoke / UAT checklist
 
 **Readiness check:**

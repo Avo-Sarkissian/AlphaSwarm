@@ -105,6 +105,9 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
   roster), `edges.ts` (curves, bracket matrix, ego network), `encodings.ts`,
   `legendItems.ts`, `caption.ts`, `Legend.tsx`, `AgentTooltip.tsx`, `InfluenceGraph.tsx`.
   No physics; see `docs/DECISIONS.md#adr-hero-graph`.
+- `data-source/`: where frames and API answers come from — `live.ts` (WebSocket loop,
+  watchdog), `demo.ts` (a recorded cycle replayed in the browser), `exportFrames.ts`,
+  `demoRoutes.ts`, `cycleExport.ts`; `index.ts` picks one per build (`VITE_DEMO`).
 - Shared: `components/` (`Modal`, the one dialog primitive every overlay goes through; `Icon`,
   `InlineError`, `RunConfirmModal`), `hooks/`, `lib/`
   (pure helpers), `context/`, `api/`, `adapter/`, `types.ts`, `data.ts`.

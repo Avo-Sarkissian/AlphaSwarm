@@ -3,6 +3,7 @@
 import { Icon } from '../components/Icon';
 import { useConnection } from '../context/ConnectionContext';
 import { useFrameMeta } from '../context/FrameMetaContext';
+import { demoLock } from '../data-source';
 import { lifecycleOf, runControlState } from '../lib/lifecycle';
 
 export interface RunControlsProps {
@@ -13,6 +14,7 @@ export interface RunControlsProps {
 }
 
 export function RunControls({ seed, pending, onRun, onStop }: RunControlsProps) {
+  const lock = demoLock();
   const meta = useFrameMeta();
   const { lastFrame } = useConnection();
   const state = runControlState({
@@ -34,8 +36,9 @@ export function RunControls({ seed, pending, onRun, onStop }: RunControlsProps) 
       type="button"
       className="btn primary"
       onClick={onRun}
-      disabled={state.disabled}
-      title={state.title ?? undefined}
+      disabled={lock.locked || state.disabled}
+      title={lock.title ?? state.title ?? undefined}
+      data-demo-lock="run"
     >
       <Icon name="play" /> {state.label}
     </button>

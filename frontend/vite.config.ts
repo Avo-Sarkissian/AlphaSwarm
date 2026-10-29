@@ -3,7 +3,17 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { answerBackendUnreachable } from './src/lib/backendUnreachable';
 
+/** VITE_BASE is the public path; GitHub Pages serves the demo under /AlphaSwarm/. */
+function resolveBase(raw: string | undefined): string {
+  const base = raw === undefined || raw === '' ? '/' : raw;
+  if (!base.startsWith('/') || !base.endsWith('/')) {
+    throw new Error(`VITE_BASE must start and end with "/", got ${JSON.stringify(base)}`);
+  }
+  return base;
+}
+
 export default defineConfig({
+  base: resolveBase(process.env.VITE_BASE),
   plugins: [react()],
   server: {
     port: 5173,

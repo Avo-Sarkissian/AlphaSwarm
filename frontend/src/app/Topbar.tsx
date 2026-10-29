@@ -3,6 +3,7 @@ import { useState } from 'react';
 import type { ReactNode } from 'react';
 import { Icon, type IconName } from '../components/Icon';
 import { useConnection } from '../context/ConnectionContext';
+import { demoLock } from '../data-source';
 import { ModelStatus } from '../features/dashboard/ModelStatus';
 import { SEED_MAX_LENGTH } from '../lib/seed';
 import type { ActiveModal } from './ModalHost';
@@ -31,6 +32,7 @@ const OVERFLOW_ITEMS: ReadonlyArray<{ label: string; icon: IconName; modal: Acti
 ];
 
 function OverflowMenu({ onOpen }: { onOpen: (modal: ActiveModal) => void }) {
+  const lock = demoLock();
   const [open, setOpen] = useState(false);
   const choose = (modal: ActiveModal) => {
     setOpen(false);
@@ -47,12 +49,31 @@ function OverflowMenu({ onOpen }: { onOpen: (modal: ActiveModal) => void }) {
       </button>
       {open && (
         <div className="overflow-menu" onMouseLeave={() => setOpen(false)}>
-          {OVERFLOW_ITEMS.map((item) => (
-            <button key={item.label} className="overflow-item" onClick={() => choose(item.modal)}>
-              <span className="overflow-item-icon"><Icon name={item.icon} /></span>
-              {item.label}
-            </button>
-          ))}
+          {OVERFLOW_ITEMS.map((item) => {
+            const content = (
+              <>
+                <span className="overflow-item-icon"><Icon name={item.icon} /></span>
+                {item.label}
+              </>
+            );
+            // Holdings never ship with the static demo, so Advisory is locked there.
+            return item.modal.kind === 'advisory' ? (
+              <button
+                key={item.label}
+                className="overflow-item"
+                onClick={() => choose(item.modal)}
+                disabled={lock.locked}
+                title={lock.title}
+                data-demo-lock="advisory"
+              >
+                {content}
+              </button>
+            ) : (
+              <button key={item.label} className="overflow-item" onClick={() => choose(item.modal)}>
+                {content}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>
@@ -78,6 +99,7 @@ export function Topbar({
   onOpen,
   onToggleShock,
 }: TopbarProps) {
+  const lock = demoLock();
   const { lastFrame } = useConnection();
   const shockWindowOpen = lastFrame?.shockWindowOpen ?? false;
   return (
@@ -117,8 +139,9 @@ export function Topbar({
       <button
         className="btn ghost-btn"
         onClick={onToggleShock}
-        disabled={!shockWindowOpen}
-        title={shockWindowOpen ? 'Inject shock event' : 'Shock window closed: a shock can only reach a later round'}
+        disabled={lock.locked || !shockWindowOpen}
+        title={lock.title ?? (shockWindowOpen ? 'Inject shock event' : 'Shock window closed: a shock can only reach a later round')}
+        data-demo-lock="shock"
         aria-label={shockWindowOpen ? 'Inject shock event' : 'Shock window closed: a shock can only reach a later round'}
       >
         <Icon name="bolt" />
@@ -129,7 +152,14 @@ export function Topbar({
       <button className="btn ghost-btn" onClick={() => onOpen({ kind: 'report', cycleId: null })} title="Simulation report" aria-label="Simulation report">
         <Icon name="doc" />
       </button>
-      <button className="btn ghost-btn" onClick={() => onOpen({ kind: 'settings' })} title="Settings" aria-label="Settings">
+      <button
+        className="btn ghost-btn"
+        onClick={() => onOpen({ kind: 'settings' })}
+        disabled={lock.locked}
+        title={lock.title ?? 'Settings'}
+        aria-label="Settings"
+        data-demo-lock="settings"
+      >
         <Icon name="settings" />
       </button>
 
