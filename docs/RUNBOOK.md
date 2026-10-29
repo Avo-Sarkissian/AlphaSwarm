@@ -1,11 +1,9 @@
 # AlphaSwarm Runbook
 
-Operational knowledge from `.planning/` handoffs, debug sessions, and model
-decision logs, checked against the scripts and config at commit `820b8fe`.
-**README.md already covers** install (`uv sync`), `ollama create` for both
-models, first-time Neo4j with `docker compose`, migrating from the old
-`docker run` container, the cloud-provider JSON, and governor env vars.
-This file covers what README does not, and points to README where they overlap.
+Operational knowledge, checked against the code. The README's Quick start covers installing,
+building the models, starting Neo4j, building the UI and `alphaswarm doctor`. This file covers
+what comes after: the Ollama server environment, models, Neo4j operations and migration, the
+cloud config file, the memory budget, the smoke checklist and troubleshooting.
 
 ---
 
@@ -104,7 +102,7 @@ The SEC asks automated clients to name a contact in the User-Agent; it is sent i
 only. Without the file the resolver still drops known non-company acronyms (FED, OPEC, …) but
 trusts every other proposed symbol; check `ticker_map_loaded source=sec` in the run log.
 
-## 3. Neo4j operations (beyond README §3)
+## 3. Neo4j operations
 
 - Compose service `neo4j`, container `alphaswarm-neo4j`, image
   `neo4j:5.26-community`, bound to 127.0.0.1 only. The password comes from
@@ -241,6 +239,29 @@ Results go to `docs/experiments.md` with cycle ids and the git SHA.
 - Free models (the NVIDIA NIM free tier) are not in the pricing table. With a spend cap set they are priced at the conservative ceiling, so add `pricing_overrides` entries with `"0"` prices or leave the cap unset. `GET /api/settings/estimate` lists them in `unpriced_models`.
 - `DEFAULT_PRICING` is re-checked against the vendor pages at least every 180 days: `PRICING_VERIFIED_AT` in `inference/budget.py`, and `tests/inference/test_budget.py::TestPricingTable::test_pricing_table_was_verified_recently` fails when it is stale.
 
+**Config file reference.** Settings writes `.secrets/inference.json` with owner-only
+permissions; you can also edit it by hand, and unknown keys are rejected. Example with a
+local orchestrator and a cloud worker:
+
+```json
+{
+  "orchestrator": {"provider": "ollama", "model": "alphaswarm-orchestrator",
+                   "base_url": "http://localhost:11434", "api_key": null},
+  "worker": {"provider": "openai_compatible", "model": "gpt-4o-mini",
+             "base_url": "https://api.openai.com/v1", "api_key": "sk-..."},
+  "limits": {"openai_compatible": {"requests_per_min": 60, "tokens_per_min": 100000,
+                                   "max_in_flight": 8, "max_retries": 3}},
+  "spend_cap_usd": "5.00",
+  "pricing_overrides": {},
+  "allow_cloud_advisory": false
+}
+```
+
+`limits` paces each cloud provider (requests and tokens per minute, calls in flight,
+retries). `spend_cap_usd` is a hard cap per operation. `allow_cloud_advisory` must be `true`
+before a cloud orchestrator receives held tickers for the advisory, and it never receives
+quantities or cost basis.
+
 ### Static demo and hero GIF
 
 ```bash
@@ -348,7 +369,7 @@ uv run ruff check src tests && uv run ruff format --check src tests
 | `/api/health` status `degraded` | A required component is down | `components.<name>.fix` holds the fix. Neo4j stopped: "Start Neo4j (docker compose up -d neo4j, or docker start <name> for a container you created yourself)"; once it answers, the next probe applies the schema, no restart needed. If your data lives in a container you created yourself (for example `neo4j`), `docker start` it: compose would start a second, empty `alphaswarm-neo4j`. Password rejected (`credentials rejected (AuthError)`): "Set ALPHASWARM_NEO4J__PASSWORD in .env to the database's password, then restart the server". Missing alias: `ollama create alphaswarm-worker -f modelfiles/Modelfile.worker` (or the orchestrator's). Ollama down: start it with `OLLAMA_USE_MLX=1` (§1) |
 | Market block empty or price-less | No resolved tickers (SEC map not cached), a yfinance deadline, or RSS fetch failures | `uv run python scripts/context_probe.py --show-block`; check `ticker_map_loaded source=sec`, `market_fetch_deadline_exceeded` and the data-source audit for `fetch_failed` |
 | Graph empty during a round | Backend not streaming per-agent state, or an older backend still running | Restart the backend. Confirm `agent_states` keys in a WS frame |
-| Neo4j auth error at startup | `ALPHASWARM_NEO4J__PASSWORD` unset, or it differs from the initialized volume | README §3 "Migrating". `NEO4J_AUTH` only applies when a volume is first initialized |
+| Neo4j auth error at startup | `ALPHASWARM_NEO4J__PASSWORD` unset, or it differs from the initialized volume | "Migrating an existing Neo4j install" below. `NEO4J_AUTH` only applies when a volume is first initialized |
 | `pytest` Neo4j tests all skipped | neo4j-test is not running | `scripts/neo4j_test.sh up`; add `--require-neo4j` to make a missing database fail instead of skip |
 | pytest exits with code 3 ("Refusing to run Neo4j tests") | neo4j-test holds leftover cycles from a crashed session, or something else answers on 7688 | `scripts/neo4j_test.sh reset` |
 | Replay or history list empty, or a finished run missing from it | The lists show only cycles whose `Cycle.status` is `complete`: a stopped run is `cancelled`, a failed one `failed` with an `error_code`, and a hard-killed one stays `running` (BACKLOG 1.15). Or the history was wiped | `MATCH (c:Cycle) RETURN c.status, count(c)`; for one cycle `MATCH (c:Cycle {cycle_id:$id}) RETURN c.status, c.error_code, c.metrics_recorded_at`. `alphaswarm report --cycle <id>` still reads a cycle that is not complete. If a checkout from before `Cycle.status` was mid-run when this version first started, the back-fill marked that cycle `failed` and it stays hidden after it finishes (`failed`, metrics set, no `error_code`): set it to `complete` by hand. Restore a wiped history from `data/backups/` |
@@ -409,3 +430,73 @@ instance lock) and the Ollama environment from §1.
 
 Outputs land in `eval/results/` (gitignored); the tables are copied into
 `docs/experiments.md`.
+
+## Memory budget
+
+Not measured yet: the per-tenant sizes and the per-phase headroom below are filled in from one
+measurement on the M1 Max (`memory_pressure`, `ollama ps`, `docker stats` and `ps` with no
+simulation running), and until then they read "not measured". What is fixed by configuration:
+
+| Tenant | Configured by | Memory | Loaded during |
+|---|---|---|---|
+| Worker `alphaswarm-worker` (weights and KV cache, `num_ctx` 4096 for each of `OLLAMA_NUM_PARALLEL` 4 slots) | `modelfiles/Modelfile.worker`, §1 | not measured | rounds, interviews |
+| Orchestrator `alphaswarm-orchestrator` (weights and KV cache, `num_ctx` 8192) | `modelfiles/Modelfile.orchestrator` | not measured | seeding, report, advisory |
+| Neo4j (`mem_limit: 2500m`, 1 GB heap, 512 MB page cache) | `docker-compose.yml` | at most 2.44 GiB (the cap) | always |
+| AlphaSwarm backend (`alphaswarm web`) | none | not measured | always |
+
+The governor reads the kernel's memory pressure: it throttles at 80% used and pauses the queue
+at 90% (`GovernorSettings.memory_throttle_percent` and `memory_pause_percent`). The orchestrator
+and the worker are never loaded together during rounds; the worst case is an interview while a
+report is generating, with both loaded.
+
+| Phase | Models loaded | Used | Headroom to throttle (80%) | Headroom to pause (90%) |
+|---|---|---|---|---|
+| Idle (models unloaded) | none | not measured | not measured | not measured |
+| Seeding, report, advisory | orchestrator | not measured | not measured | not measured |
+| Rounds | worker | not measured | not measured | not measured |
+| Interview during a report (worst case) | worker + orchestrator | not measured | not measured | not measured |
+
+- Give Docker Desktop 3-4 GiB of memory: Neo4j is capped below 2.5 GiB and the VM needs room around it.
+- When the worst-case row has less than 5 pp of headroom to the throttle threshold, avoid
+  interviews while a report is generating, or close other large apps.
+- Shrinking the governor's slots barely changes this budget: server parallelism is fixed by
+  `OLLAMA_NUM_PARALLEL`, and the KV cache is allocated when a model loads (see the memory-caps
+  note in §3).
+- To measure: close other large apps, start Neo4j and `uv run alphaswarm web`, unload both models
+  (`ollama stop`), read `memory_pressure` (free percentage), `docker stats --no-stream
+  alphaswarm-neo4j` and the backend's RSS; then load the orchestrator, then the worker, then
+  unload the orchestrator, reading `ollama ps` and `memory_pressure` after each step. "Used" is
+  100 minus the free percentage, the same signal the governor reads. Re-measure after changing a
+  model, `num_ctx` or `OLLAMA_NUM_PARALLEL`.
+
+## Migrating an existing Neo4j install
+
+**From the old `docker run --name neo4j` recipe.** That container published 7474 and 7687 on
+every interface with the old `alphaswarm` password and holds those ports, so
+`docker compose up -d` cannot bind them until it is gone. Its data sits on an anonymous
+volume that the Compose named volume does not adopt, so dump it first:
+
+```bash
+./scripts/backup_neo4j.sh   # writes data/backups/ (set ALPHASWARM_NEO4J_CONTAINER=neo4j if it finds two)
+docker rm -f neo4j          # frees the ports and retires the old credential
+docker compose up -d --wait neo4j
+```
+
+Load the dump with the restore steps in §3, using `alphaswarm-neo4j` as the container. The
+server must be able to read that store: the old recipe's floating `neo4j:community` tag is now a
+2026.x release while this repo pins `neo4j:5.26-community`, so if the load is rejected, pin
+`image:` in `docker-compose.yml` to the version you dumped from. Credentials live in the
+`system` database, not in the dump, so the restored graph uses your new password.
+
+**Rotating the password of an existing Compose volume.** `NEO4J_AUTH` only takes effect when a
+volume is first initialized, so a new value in `.env` does not change the stored password.
+Rotate it in place, then recreate the container with the same value so the healthcheck agrees:
+
+```bash
+docker exec -it alphaswarm-neo4j cypher-shell -u neo4j -p '<old-password>' -d system \
+  "ALTER CURRENT USER SET PASSWORD FROM '<old-password>' TO '<new-password>'"
+# set ALPHASWARM_NEO4J__PASSWORD=<new-password> in .env, then:
+docker compose up -d --wait neo4j
+```
+
+`docker compose down -v` also works, at the cost of deleting the graph.
