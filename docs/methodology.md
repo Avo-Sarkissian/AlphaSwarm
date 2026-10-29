@@ -1,5 +1,7 @@
 # Evaluation methodology (pre-registered)
 
+> **Status:** pre-registered; no evaluation run is recorded yet. Results: [experiments.md, headline numbers](experiments.md#headline-numbers-v60).
+
 This document fixes, before any evaluation run, what AlphaSwarm's accuracy
 evaluation (P7.7) and ablations (P7.8) measure and how the results are read.
 `alphaswarm.evaluation` and the scripts in `eval/` implement every rule
@@ -158,3 +160,42 @@ Each forecaster produces a score S ∈ [-1, 1] per run; P(up) = (1 + S) / 2.
 ## 10. Deviations from pre-registration
 
 None.
+
+## Limitations
+
+- **A simulation, not a market.** The swarm models who forms and spreads opinions about a
+  rumor; passive capital and market makers are excluded on purpose
+  ([adr-swarm-composition-v2](DECISIONS.md#adr-swarm-composition-v2)). Signals are
+  opinions, not trades, and nothing here is investment advice.
+- **Public information only.** Agents see the rumor, injected shocks, public prices and
+  headlines for named tickers in the configured rounds, and from Round 2 a sample of peer
+  rationales and their own previous position. There is no private information unless the
+  private-headlines experiment flag is on.
+- **Small samples.** The event set and seed counts are small, so read every number with its
+  confidence interval. Ablations use a subset of events, with 2 rounds wherever Round 3
+  is not the variable (§9).
+- **Models and decoding.** Results hold for the recorded models and prompts (each cycle's
+  run manifest). Seeds make peer selection and control assignment exact, but batched
+  decoding on Ollama (`OLLAMA_NUM_PARALLEL` above 1) is not bit-exact, so two runs with the
+  same seed can differ in a few decisions.
+- **Leakage.** A model may know an event's outcome from training. The evaluation reports the
+  post-cutoff subset and the anonymized-rumor variant separately (§8); treat pre-cutoff
+  results as an upper bound.
+- **Labels.** Outcomes are abnormal returns against a benchmark at fixed horizons with a
+  volatility-scaled flat band (§3); other horizons or bands can change a verdict.
+
+## Reproduce
+
+1. Every cycle stores its run manifest (`run_manifest_json` on the Cycle node): models and
+   digests, prompt hashes, settings and seeds. List cycles with `uv run alphaswarm cycles list`
+   and export one with `uv run alphaswarm cycles export CYCLE_ID -o cycle.json`; the export
+   includes the manifest when one was stored.
+2. Re-run a configuration by setting the manifest's settings as `ALPHASWARM_SIMULATION__*`
+   variables (including `SIM_SEED` and `EXPERIMENT_TAG`) and running
+   `uv run alphaswarm run "RUMOR"`.
+3. Rebuild the comparison tables from stored cycles with
+   `uv run python scripts/compare_cycles.py --group-by experiment_tag,worker_model --markdown`
+   and the control comparison with `uv run python scripts/peer_effect.py` (see `--help`).
+4. Rebuild the evaluation: `uv sync --group eval`, then `uv run python eval/label_outcomes.py`
+   and `uv run python eval/run_eval.py` (see `--help` for each). Every results table in
+   [experiments.md](experiments.md) names the command and cycle ids it came from.

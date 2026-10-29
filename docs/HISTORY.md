@@ -56,6 +56,38 @@ M1 Max with 64 GB, where memory pressure is the main way things fail.
 - **10-03:** GSD planning retired. Its knowledge was ported to `docs/`.
 - **2026-10: Repository hygiene.** Fictional holdings fixtures, iCloud duplicates removed and ignored, an MIT LICENSE, package metadata, an `alphaswarm` console script with a single version source (0.6.0), README false claims removed, and the working copy moved out of iCloud Drive to `~/dev/AlphaSwarm`.
 
+## The October 2026 improvement program (v6.0)
+
+An audit of the whole system on 2026-10-03 became a ten-phase program, released as v6.0
+([CHANGELOG.md](../CHANGELOG.md)):
+
+1. **Repo hygiene.** GSD planning retired, iCloud duplicates removed, a LICENSE and one
+   version source.
+2. **Safety net.** An isolated `neo4j-test` database, golden tests, a scripted end-to-end
+   engine harness, and gated lint and types.
+3. **Correctness.** Schema on startup, loud failures, a cycle status lifecycle, correct read
+   models and a fixed peer selector.
+4. **Security and privacy.** Host validation, the cloud-advisory opt-in, fenced peer text,
+   and the owner's portfolio list out of the source tree.
+5. **Live UI.** A versioned wire contract, correct influence ranking and tallies, and no
+   placebo controls.
+6. **Structure.** A short round loop, a graph package with typed rows, a service layer and
+   one launcher.
+7. **Performance.** Per-call telemetry, output caps, a kernel memory signal and a preflight
+   `doctor`.
+8. **Methodology.** Own-prior memory, a seeded control group, run manifests, consensus
+   metrics, and a pre-registered evaluation harness with baselines and ablations.
+9. **Visualization and demo.** A deterministic layout, directional edges, the round-by-round
+   story, a portable export and a static demo build.
+10. **Presentation.** The README rewrite, the docs set, the changelog and the résumé bullets
+    below.
+
+The measurements the program prepared (the performance arms, the control-group runs, the
+evaluation against real outcomes, the ablations and the memory budget) need real inference
+on the reference machine and have not been run yet; the headline table in
+[experiments.md](experiments.md#headline-numbers-v60) says "not measured" for each until
+they are.
+
 ## Major pivots
 
 | Area | Path |
@@ -79,11 +111,20 @@ M1 Max with 64 GB, where memory pressure is the main way things fail.
 4. **Writer and reader schemas drift silently.** Examples: uppercase versus lowercase signals in Cypher; `content` versus `portfolio_outlook`; `text` versus `rationale`. Wire-contract tests (`frontend/src/__tests__/frame.test.ts`) and registry invariants (`tests/test_report.py:28`) are the fix.
 5. **Measure before optimizing.** The "serial dispatch" hypothesis was wrong: the TaskGroup fan-out was already correct, and the real cause was Ollama's per-architecture parallel cap plus prefill cost.
 
-## Candidate resume bullets
+## Résumé bullets (v6.0, measured)
 
-1. Built **AlphaSwarm**, a local-first multi-agent LLM simulation engine (Python 3.11 asyncio, FastAPI, Neo4j, Ollama/MLX). It runs 100 market personas in 10 archetypes through a multi-round consensus cascade, and influence edges built from agent citations are stored in a cycle-scoped Neo4j graph.
-2. Designed a memory-aware concurrency governor (token pool, 5-state machine, macOS kernel-pressure + psutil signals) for a 64 GB M1 Max. Diagnosed an inference stall caused by Ollama's per-architecture parallel cap and KV-cache spill (8-call batch: 45.6 s → 7.5 s). Benchmarked and migrated to MLX MoE models for 5.6× worker and about 30× orchestrator prefill throughput.
-3. Built a real-time React/TypeScript + D3 dashboard driven by a 5 Hz WebSocket broadcaster with per-client drop-oldest backpressure. It also supports replay from graph state, multi-turn agent interviews, and a prompt-based ReAct agent that queries Neo4j to write analysis reports.
-4. Delivered a privacy-isolated personalized portfolio advisory. Brokerage holdings are kept out of agent prompts, the database, WebSocket frames, and logs by an import-linter contract, a fail-closed PII-redacting log processor, and a four-surface sentinel canary test.
-5. Added a pluggable inference layer (Ollama, OpenAI-compatible, Anthropic) with token-bucket rate limiting, pre-run cost estimates, and a hard spend cap, and ran the full simulation on a free cloud API tier.
-6. Hardened the codebase: 1,300+ backend tests and 97 frontend wire-contract tests running in GitHub Actions CI, 35 deep-audit findings fixed with regression tests, and 6 security-scan issues remediated (CSRF Origin guard, WebSocket origin checks, prompt-injection fencing, secret handling).
+Six bullets for a résumé or portfolio page. `scripts/docs_sync.py` renders them from the
+headline numbers in [experiments.md](experiments.md#headline-numbers-v60), so they change
+only when a measurement changes. A bullet whose result is not measured yet leaves the
+result out, and the note under the list names it as a placeholder.
+
+<!-- resume:start -->
+1. Built **AlphaSwarm**, a local-first multi-agent LLM simulation engine (Python 3.11 asyncio, FastAPI, Neo4j, Ollama on MLX) that runs 100 market personas in 10 archetypes through a multi-round consensus cascade and streams it to a live influence graph. It ships a point-in-time evaluation harness with pre-registered metrics and single-model baselines.
+2. Added a seeded no-peer control group to separate peer influence from noise, after fixing a peer-selection bias that hid 6 of 10 brackets from every feed (brackets never shown: 6 → 0; largest slot share: 46.0% → 15.2%; agents shown: 46 → 100 (Round 2)); every run stores a manifest (seeds, model digests, prompt hashes) so any run can be traced and re-run.
+3. Designed a memory-aware concurrency governor for a 64 GB M1 Max (macOS kernel memory signal, crisis escalation, gradual recovery) and per-call inference telemetry; benchmarked MLX prefill: worker 833 → 2,361 tok/s (2.8×, GGUF MoE → MLX MoE), orchestrator 111 → 3,395 tok/s (30.6×, same 27B weights).
+4. Built a real-time React/TypeScript dashboard on a versioned 5 Hz WebSocket contract with latest-wins backpressure, a deterministic influence graph that replays the round-by-round citation cascade, and a static read-only demo build.
+5. Delivered a privacy-isolated portfolio advisory: holdings never reach agent prompts, Neo4j, WebSocket frames or logs, which an import-linter contract and a four-surface canary test enforce, and no ticker reaches a cloud model without an explicit opt-in.
+6. Raised the quality bar to 4,037 backend tests (95.5% coverage) and 881 frontend tests, with golden tests against a throwaway Neo4j in CI and gated mypy strict, ruff, ESLint and 5 import-linter contracts; fixed 35 audit findings and 6 security-scan issues with regression tests.
+
+**Placeholders:** bullet 1 waits on the evaluation runs against real outcomes; bullet 2 waits on the control-group runs; bullet 3 waits on the performance-arm runs. Until then each of these bullets says what the code does, without a result.
+<!-- resume:end -->

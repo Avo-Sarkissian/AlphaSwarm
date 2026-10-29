@@ -74,7 +74,7 @@ RESULT_KEYS: Final = (
 RUNTIME_KEYS: Final = ("model_weights", "wall_clock_3r", "wall_clock_2r")
 QUALITY_KEYS: Final = ("backend_tests", "backend_coverage", "frontend_tests", "import_contracts")
 VERDICTS: Final[Mapping[str, frozenset[str]]] = {
-    "eval_verdict": frozenset({"better", "no-difference", "worse", NOT_MEASURED}),
+    "eval_verdict": frozenset({"better", "inconclusive", "worse", NOT_MEASURED}),
     "peer_effect_verdict": frozenset({"positive", "null", "negative", NOT_MEASURED}),
 }
 RELEASE_OPTIONAL: Final = frozenset({"demo_url"})
@@ -334,13 +334,14 @@ def render_demo(rows: Mapping[str, HeadlineRow], *, facts: RepoFacts | None = No
     url = rows["demo_url"].value
     if url.startswith("https://"):
         return (
-            f"**[Live demo]({url})**: a read-only replay of a real cycle in your browser, "
+            f"**[Live demo]({url})**: a read-only replay of one cycle in your browser, "
             "no install needed."
         )
     if not (repo_facts(ROOT) if facts is None else facts).demo_build:
         return ""  # nothing published and nothing to build: the README names no demo
     return (
-        "**Demo:** a read-only replay of a real cycle. Build it locally with "
+        "**Demo:** a static, read-only replay of one cycle, available once published. Until "
+        "then, build it locally with "
         "`VITE_DEMO=1 npm --prefix frontend run build && npm --prefix frontend run preview`."
     )
 
@@ -377,7 +378,8 @@ def load_captures(path: Path) -> Captures:
 
 def render_screenshots(captures: Captures) -> str:
     (first, first_alt), *rest = IMAGE_SPECS
-    out = [f"![{first_alt}](docs/media/{first})", "", f"*{first_alt}.*", "", "| | |", "|---|---|"]
+    out = ["### Screenshots", "", f"![{first_alt}](docs/media/{first})", "", f"*{first_alt}.*"]
+    out += ["", "| | |", "|---|---|"]
     for (left, left_alt), (right, right_alt) in zip(rest[0::2], rest[1::2], strict=True):
         out.append(f"| ![{left_alt}](docs/media/{left}) | ![{right_alt}](docs/media/{right}) |")
         out.append(f"| *{left_alt}.* | *{right_alt}.* |")
@@ -465,7 +467,7 @@ def _resume_method(rows: Mapping[str, HeadlineRow], facts: RepoFacts) -> str:
         return f"{lead}, {fix}."
     return (
         f"{lead}, {fix}; every run stores a manifest (seeds, model digests, prompt hashes) "
-        "so results reproduce."
+        "so any run can be traced and re-run."
     )
 
 
@@ -530,13 +532,40 @@ def _resume_quality(rows: Mapping[str, HeadlineRow], facts: RepoFacts) -> str:
     return lead + "; fixed 35 audit findings and 6 security-scan issues with regression tests."
 
 
+# Bullet number, the headline keys whose result it would quote, and what it waits on.
+_RESUME_PENDING: Final[tuple[tuple[int, tuple[str, ...], str], ...]] = (
+    (1, ("eval_accuracy", "eval_verdict"), "the evaluation runs against real outcomes"),
+    (2, ("peer_effect", "peer_effect_verdict"), "the control-group runs"),
+    (3, ("speedup",), "the performance-arm runs"),
+    (6, ("backend_tests", "backend_coverage", "frontend_tests"), "a test-suite count"),
+)
+
+
+def _resume_placeholders(rows: Mapping[str, HeadlineRow]) -> str:
+    """A note naming the bullets that leave out a result because it is not measured yet."""
+    waiting = [
+        f"bullet {number} waits on {what}"
+        for number, keys, what in _RESUME_PENDING
+        if any(not rows[key].measured for key in keys)
+    ]
+    if not waiting:
+        return ""
+    return (
+        f"**Placeholders:** {'; '.join(waiting)}. Until then each of these bullets says what "
+        "the code does, without a result."
+    )
+
+
 def render_resume(
     rows: Mapping[str, HeadlineRow],
     brackets: Sequence[BracketConfig],
     *,
     facts: RepoFacts | None = None,
 ) -> str:
-    """Six numbered bullets; without ``facts`` they follow this repository's features."""
+    """Six numbered bullets, then a note on the bullets still waiting for a measurement.
+
+    Without ``facts`` they follow this repository's features.
+    """
     present = repo_facts(ROOT) if facts is None else facts
     bullets = (
         _resume_project(rows, sum(b.count for b in brackets), len(brackets), present),
@@ -546,7 +575,9 @@ def render_resume(
         _RESUME_PRIVACY,
         _resume_quality(rows, present),
     )
-    return "\n".join(f"{n}. {bullet}" for n, bullet in enumerate(bullets, start=1))
+    text = "\n".join(f"{n}. {bullet}" for n, bullet in enumerate(bullets, start=1))
+    note = _resume_placeholders(rows)
+    return f"{text}\n\n{note}" if note else text
 
 
 # --------------------------------------------------------------------------- sync
@@ -556,11 +587,15 @@ def expected_blocks(root: Path, brackets: Sequence[BracketConfig]) -> dict[tuple
     rows = parse_headline(_read(root, EXPERIMENTS))
     facts = repo_facts(root)
     results = render_rows(rows, RESULT_KEYS)
+    # No gallery until the capture run writes captures.json: the README shows no screenshot
+    # that does not exist (docs/DECISIONS.md#adr-docs-sync).
+    captures = root / CAPTURES
+    gallery = render_screenshots(load_captures(captures)) if captures.exists() else ""
     return {
         ("README.md", "demo"): render_demo(rows, facts=facts),
         ("README.md", "runtime"): render_rows(rows, RUNTIME_KEYS),
         ("README.md", "results"): results,
-        ("README.md", "screenshots"): render_screenshots(load_captures(root / CAPTURES)),
+        ("README.md", "screenshots"): gallery,
         ("README.md", "brackets"): render_brackets(brackets),
         ("README.md", "quality"): render_rows(rows, QUALITY_KEYS),
         ("CHANGELOG.md", "results"): results,

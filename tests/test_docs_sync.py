@@ -239,7 +239,7 @@ def test_resume_quotes_values_with_the_verdict_wording(ds: ModuleType) -> None:
     assert "a static read-only demo on GitHub Pages" in better
     total = sum(b.count for b in DEFAULT_BRACKETS)
     assert f"runs {total} market personas in {len(DEFAULT_BRACKETS)} archetypes" in better
-    flat = ds.render_resume(_rows(ds, eval_verdict="no-difference", peer_effect_verdict="null"), DEFAULT_BRACKETS)
+    flat = ds.render_resume(_rows(ds, eval_verdict="inconclusive", peer_effect_verdict="null"), DEFAULT_BRACKETS)
     assert "showed no significant edge over single-model baselines" in flat
     assert "found no significant peer-attributable flip rate" in flat
     worse = ds.render_resume(_rows(ds, eval_verdict="worse", peer_effect_verdict="negative"), DEFAULT_BRACKETS)
@@ -335,7 +335,7 @@ def test_repo_facts_ignore_mentions_that_are_not_the_feature(
 def test_resume_and_demo_leave_out_features_the_repository_lacks(ds: ModuleType) -> None:
     absent = _facts(ds, present=False)
     claims = ("ruff", "manifest", "telemetry", "pre-registered")
-    for verdict in ("better", "worse", "no-difference", "not measured"):
+    for verdict in ("better", "worse", "inconclusive", "not measured"):
         rows = _rows(ds, eval_verdict=verdict)
         text = ds.render_resume(rows, DEFAULT_BRACKETS, facts=absent)
         assert [claim for claim in claims if claim in text] == [], verdict
@@ -391,21 +391,21 @@ ACCURACY = "(hit rate 0.61 (95% CI 0.52-0.70) vs 0.50)"
         ),
         ("worse", (), f"{ACCURACY}, reported as measured."),
         (
-            "no-difference",
+            "inconclusive",
             ("preregistered", "run_manifest"),
             f"{ACCURACY}, a result the pre-registered harness reproduces from stored run manifests.",
         ),
         (
-            "no-difference",
+            "inconclusive",
             ("run_manifest",),
             f"{ACCURACY}, a result the harness reproduces from stored run manifests.",
         ),
         (
-            "no-difference",
+            "inconclusive",
             ("preregistered",),
             f"{ACCURACY}, reported as measured with pre-registered metrics.",
         ),
-        ("no-difference", (), f"{ACCURACY}, reported as measured."),
+        ("inconclusive", (), f"{ACCURACY}, reported as measured."),
     ],
 )
 def test_resume_names_pre_registration_and_run_manifests_only_once_they_exist(
@@ -584,3 +584,74 @@ def test_main_reports_a_missing_source_as_malformed(
     (root / missing).unlink()
     assert ds.main(["--root", str(root), "check"]) == 2
     assert f"docs_sync: missing {missing}" in capsys.readouterr().err
+
+
+def test_eval_verdicts_are_the_evaluation_harness_verdicts(ds: ModuleType) -> None:
+    # The owner copies eval_verdict from the table eval/run_eval.py prints, so the headline
+    # accepts exactly the harness's conclusive and inconclusive verdicts (without "swarm ").
+    from alphaswarm.evaluation import Interval, verdict
+
+    harness = {
+        verdict(Interval(0.0, lo, hi, 5, 5)).removeprefix("swarm ")
+        for lo, hi in ((-0.2, -0.1), (-0.1, 0.1), (0.1, 0.2))
+    }
+    assert ds.VERDICTS["eval_verdict"] == harness | {ds.NOT_MEASURED}
+
+
+def test_resume_marks_the_bullets_that_wait_on_a_measurement(ds: ModuleType) -> None:
+    assert "Placeholders" not in ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=_facts(ds))
+    cases = {
+        "eval_verdict": "bullet 1 waits on the evaluation runs against real outcomes",
+        "peer_effect": "bullet 2 waits on the control-group runs",
+        "speedup": "bullet 3 waits on the performance-arm runs",
+        "frontend_tests": "bullet 6 waits on a test-suite count",
+    }
+    for key, phrase in cases.items():
+        text = ds.render_resume(_rows(ds, **{key: "not measured"}), DEFAULT_BRACKETS, facts=_facts(ds))
+        bullets, _, note = text.partition("\n\n")
+        assert bullets.count("\n") == 5, key
+        assert note.startswith("**Placeholders:**") and phrase in note, key
+        others = [p for k, p in cases.items() if k != key]
+        assert not any(p in note for p in others), key
+
+
+def test_history_resume_is_rendered_from_the_headline_table(ds: ModuleType) -> None:
+    rows = ds.parse_headline((ROOT / "docs" / "experiments.md").read_text(encoding="utf-8"))
+    history = (ROOT / "docs" / "HISTORY.md").read_text(encoding="utf-8")
+    assert ds.block_body(history, "resume") == ds.render_resume(rows, DEFAULT_BRACKETS)
+
+
+def test_resume_does_not_promise_bit_exact_reproduction(ds: ModuleType) -> None:
+    # Batched decoding on Ollama is not bit-exact (docs/methodology.md "Limitations").
+    text = ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=_facts(ds))
+    assert "so results reproduce" not in text
+    assert "prompt hashes) so any run can be traced and re-run." in text
+
+
+def test_sync_leaves_the_gallery_empty_until_the_captures_exist(ds: ModuleType, tmp_path: Path) -> None:
+    root = _make_root(tmp_path, headline_md())
+    (root / "docs" / "media" / "captures.json").unlink()
+    ds.sync(root, DEFAULT_BRACKETS, write=True)
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    assert ds.block_body(readme, "screenshots") == ""
+    assert ds.sync(root, DEFAULT_BRACKETS, write=False) == []
+
+
+def test_render_screenshots_brings_its_own_heading(ds: ModuleType, tmp_path: Path) -> None:
+    path = tmp_path / "captures.json"
+    path.write_text(json.dumps(CAPTURES), encoding="utf-8")
+    assert ds.render_screenshots(ds.load_captures(path)).startswith("### Screenshots\n\n![")
+
+
+def test_repository_docs_are_in_sync(ds: ModuleType) -> None:
+    stale = ds.sync(ROOT, DEFAULT_BRACKETS, write=False)
+    assert stale == [], f"stale generated blocks {stale}; run: uv run python scripts/docs_sync.py write"
+
+
+def test_render_demo_says_an_unpublished_demo_is_not_live_yet(ds: ModuleType) -> None:
+    # The bundled demo cycle can be a fictional placeholder (docs/RUNBOOK.md), so neither line
+    # promises a real run; an unpublished demo is named as available once published.
+    local = ds.render_demo(_rows(ds, demo_url="not published"), facts=_facts(ds))
+    assert "available once published" in local and "VITE_DEMO=1" in local
+    for text in (local, ds.render_demo(_rows(ds), facts=_facts(ds))):
+        assert "real cycle" not in text

@@ -118,3 +118,8 @@ def test_media_matches_the_captures_file() -> None:
         return
     captures = docs_sync.load_captures(captures_path)
     assert pngs == set(captures.images) == {name for name, _ in docs_sync.IMAGE_SPECS}
+
+
+def test_mock_screenshots_are_gone() -> None:
+    assert not (ROOT / "docs" / "screenshots").exists()
+    assert not (ROOT / "docs" / "design" / "prototype" / "screenshots").exists()

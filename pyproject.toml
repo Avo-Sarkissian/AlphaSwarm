@@ -49,7 +49,7 @@ eval = [
 Homepage = "https://github.com/Avo-Sarkissian/AlphaSwarm"
 Repository = "https://github.com/Avo-Sarkissian/AlphaSwarm"
 Issues = "https://github.com/Avo-Sarkissian/AlphaSwarm/issues"
-Changelog = "https://github.com/Avo-Sarkissian/AlphaSwarm/blob/master/docs/HISTORY.md"
+Changelog = "https://github.com/Avo-Sarkissian/AlphaSwarm/blob/master/CHANGELOG.md"
 
 [project.scripts]
 alphaswarm = "alphaswarm.cli:main"

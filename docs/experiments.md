@@ -7,35 +7,33 @@ The results log: every number the project quotes, with the command or record it 
 The one place a measured number is written; each row links to the table it came from. The
 README, the CHANGELOG and the résumé bullets in [HISTORY.md](HISTORY.md) quote these rows
 only through generated blocks, which `uv run python scripts/docs_sync.py write` fills and
-`docs_sync.py check` compares ([why](DECISIONS.md#adr-docs-sync)). None of those blocks
-exists yet, so no document carries a generated copy today; until they all exist, along with
-`docs/media/captures.json`, both commands stop with exit status 2 and change nothing. A
-value of `not measured` means the measurement was not run; it is shown as such, never
-estimated.
-Rows whose source is plain text have no results table yet. Method and pre-registered
-metrics: `methodology.md` (not written yet).
+`docs_sync.py check` compares ([why](DECISIONS.md#adr-docs-sync)). A value of
+`not measured` means the measurement was not run; it is shown as such, never estimated.
+`eval_verdict` takes the claim-rule verdict `eval/run_eval.py` prints (`better`,
+`inconclusive` or `worse`). Method and pre-registered metrics:
+[methodology.md](methodology.md).
 
 <!-- headline:start -->
 | Key | Result | Value | Source |
 |---|---|---|---|
-| `eval_accuracy` | Swarm accuracy vs the best single-model baseline | not measured | Evaluation: not run |
-| `eval_verdict` | Evaluation verdict (paired bootstrap) | not measured | Evaluation: not run |
-| `peer_effect` | Peer-attributable flip rate (treated − control) | not measured | Control group: control-group run not done |
-| `peer_effect_verdict` | Peer-effect verdict | not measured | Control group: control-group run not done |
-| `ablation_rounds` | 2 vs 3 rounds | not measured | Ablations: not run |
-| `ablation_peers` | Peer strategy: stratified vs random vs none | not measured | Ablations: not run |
+| `eval_accuracy` | Swarm accuracy vs the best single-model baseline | not measured | [Evaluation protocol](methodology.md): no runs recorded |
+| `eval_verdict` | Evaluation verdict (paired bootstrap) | not measured | [Evaluation protocol](methodology.md): no runs recorded |
+| `peer_effect` | Peer-attributable flip rate (treated − control) | not measured | Control group: no runs recorded |
+| `peer_effect_verdict` | Peer-effect verdict | not measured | Control group: no runs recorded |
+| `ablation_rounds` | 2 vs 3 rounds | not measured | [Ablation protocol](methodology.md): no runs recorded |
+| `ablation_peers` | Peer strategy: stratified vs random vs none | not measured | [Ablation protocol](methodology.md): no runs recorded |
 | `peer_exposure` | Peer exposure before → after the selector fix | brackets never shown: 6 → 0; largest slot share: 46.0% → 15.2%; agents shown: 46 → 100 (Round 2) | [Decision](DECISIONS.md#adr-diverse-peer-context) |
-| `speedup` | Mean round time before → after the performance work | not measured | Arms: performance arms not run |
+| `speedup` | Mean round time before → after the performance work | not measured | [Arms](#arms): no runs recorded |
 | `mlx_prefill_worker` | Worker prefill, GGUF → MLX | 833 → 2,361 tok/s (2.8×, GGUF MoE → MLX MoE) | [Model stack benchmarks](#model-stack-benchmarks-2026-06-11) |
 | `mlx_prefill_orchestrator` | Orchestrator prefill, GGUF → MLX | 111 → 3,395 tok/s (30.6×, same 27B weights) | [Model stack benchmarks](#model-stack-benchmarks-2026-06-11) |
-| `model_weights` | Model memory (loaded, Ollama) | not measured | Memory budget: memory measurement not done |
-| `wall_clock_3r` | 3-round run, median wall time | not measured | Arms: performance arms not run |
-| `wall_clock_2r` | 2-round run, median wall time | not measured | Ablations: rounds ablation not run |
-| `backend_tests` | Backend tests (offline suite; Neo4j suite not measured) | 2,284 | [Test suite](#test-suite-v60) |
-| `backend_coverage` | Backend coverage (line + branch, offline suite) | 91% | [Test suite](#test-suite-v60) |
-| `frontend_tests` | Frontend tests (vitest) | 392 | [Test suite](#test-suite-v60) |
-| `import_contracts` | Import-linter contracts kept | 1 | [Test suite](#test-suite-v60) |
-| `demo_url` | Static demo | not published | Static demo not built yet |
+| `model_weights` | Model memory (loaded, Ollama) | not measured | [Memory budget](RUNBOOK.md#memory-budget): not measured yet |
+| `wall_clock_3r` | 3-round run, median wall time | not measured | [Arms](#arms): no runs recorded |
+| `wall_clock_2r` | 2-round run, median wall time | not measured | [Ablation protocol](methodology.md): no runs recorded |
+| `backend_tests` | Backend tests (offline + Neo4j) | 4,037 | [Test suite](#test-suite-v60) |
+| `backend_coverage` | Backend coverage (line + branch, offline suite) | 95.5% | [Test suite](#test-suite-v60) |
+| `frontend_tests` | Frontend tests (vitest) | 881 | [Test suite](#test-suite-v60) |
+| `import_contracts` | Import-linter contracts kept | 5 | [Test suite](#test-suite-v60) |
+| `demo_url` | Static demo | not published | [Pages workflow](../.github/workflows/pages.yml): not run yet |
 <!-- headline:end -->
 
 ## Protocol
@@ -107,18 +105,17 @@ the headers of [Modelfile.worker](../modelfiles/Modelfile.worker) and
 
 ## Test suite (v6.0)
 
-Counted on 2026-10-22 on branch `plan/24-phase-9-presentation`, based on master `05743c4`.
-The offline count leaves out all six tests in
-`tests/integration/test_yfinance_provider_live.py`: four call Yahoo Finance and need the
-network, one checks the empty-list guard without a network call, and one checks that the
-module stays under `tests/integration/`.
+Counted on 2026-10-29 on branch `plan/24-phase-9-presentation-rest`, based on master
+`e1c631e`. The offline suite deselects the tests marked `neo4j`, `live_network` (Yahoo
+Finance and RSS calls, run nightly) and `ollama`; the Neo4j suite ran against the throwaway
+`neo4j-test` database on 127.0.0.1:7688.
 
 | Suite | Command | Result |
 |---|---|---|
-| Backend, offline | `ALPHASWARM_INFERENCE_CONFIG_PATH=/nonexistent/inference.json uv run pytest -q -m "not neo4j" -p no:cacheprovider --ignore=tests/integration/test_yfinance_provider_live.py --cov=alphaswarm --cov-branch --cov-report=term` | 2,284 passed; coverage 91% (line + branch) |
-| Backend, Neo4j | `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j` | not measured: neo4j-test was in use by another run when this was counted |
-| Frontend | `npm --prefix frontend test` | 392 passed |
-| Import contracts | `uv run lint-imports` | 1 kept, 0 broken |
+| Backend, offline | `ALPHASWARM_INFERENCE_CONFIG_PATH=/nonexistent/inference.json uv run pytest -q -m "not neo4j and not live_network and not ollama" -p no:cacheprovider --cov=alphaswarm --cov-branch --cov-fail-under=85` | 3,845 passed, 204 deselected; coverage 95.5% (line + branch) |
+| Backend, Neo4j | `scripts/neo4j_test.sh up && uv run pytest -q -m neo4j --require-neo4j -p no:cacheprovider` | 192 passed |
+| Frontend | `npx vitest run` (in `frontend/`) | 881 passed (130 files) |
+| Import contracts | `uv run lint-imports` | 5 kept, 0 broken |
 
 ## P7.1 — reproducibility (same manifest, same seed)
 
