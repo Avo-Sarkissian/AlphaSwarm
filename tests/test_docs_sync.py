@@ -596,3 +596,33 @@ def test_eval_verdicts_are_the_evaluation_harness_verdicts(ds: ModuleType) -> No
         for lo, hi in ((-0.2, -0.1), (-0.1, 0.1), (0.1, 0.2))
     }
     assert ds.VERDICTS["eval_verdict"] == harness | {ds.NOT_MEASURED}
+
+
+def test_resume_marks_the_bullets_that_wait_on_a_measurement(ds: ModuleType) -> None:
+    assert "Placeholders" not in ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=_facts(ds))
+    cases = {
+        "eval_verdict": "bullet 1 waits on the evaluation runs against real outcomes",
+        "peer_effect": "bullet 2 waits on the control-group runs",
+        "speedup": "bullet 3 waits on the performance-arm runs",
+        "frontend_tests": "bullet 6 waits on a test-suite count",
+    }
+    for key, phrase in cases.items():
+        text = ds.render_resume(_rows(ds, **{key: "not measured"}), DEFAULT_BRACKETS, facts=_facts(ds))
+        bullets, _, note = text.partition("\n\n")
+        assert bullets.count("\n") == 5, key
+        assert note.startswith("**Placeholders:**") and phrase in note, key
+        others = [p for k, p in cases.items() if k != key]
+        assert not any(p in note for p in others), key
+
+
+def test_history_resume_is_rendered_from_the_headline_table(ds: ModuleType) -> None:
+    rows = ds.parse_headline((ROOT / "docs" / "experiments.md").read_text(encoding="utf-8"))
+    history = (ROOT / "docs" / "HISTORY.md").read_text(encoding="utf-8")
+    assert ds.block_body(history, "resume") == ds.render_resume(rows, DEFAULT_BRACKETS)
+
+
+def test_resume_does_not_promise_bit_exact_reproduction(ds: ModuleType) -> None:
+    # Batched decoding on Ollama is not bit-exact (docs/methodology.md "Limitations").
+    text = ds.render_resume(_rows(ds), DEFAULT_BRACKETS, facts=_facts(ds))
+    assert "so results reproduce" not in text
+    assert "prompt hashes) so any run can be traced and re-run." in text

@@ -465,7 +465,7 @@ def _resume_method(rows: Mapping[str, HeadlineRow], facts: RepoFacts) -> str:
         return f"{lead}, {fix}."
     return (
         f"{lead}, {fix}; every run stores a manifest (seeds, model digests, prompt hashes) "
-        "so results reproduce."
+        "so any run can be traced and re-run."
     )
 
 
@@ -530,13 +530,40 @@ def _resume_quality(rows: Mapping[str, HeadlineRow], facts: RepoFacts) -> str:
     return lead + "; fixed 35 audit findings and 6 security-scan issues with regression tests."
 
 
+# Bullet number, the headline keys whose result it would quote, and what it waits on.
+_RESUME_PENDING: Final[tuple[tuple[int, tuple[str, ...], str], ...]] = (
+    (1, ("eval_accuracy", "eval_verdict"), "the evaluation runs against real outcomes"),
+    (2, ("peer_effect", "peer_effect_verdict"), "the control-group runs"),
+    (3, ("speedup",), "the performance-arm runs"),
+    (6, ("backend_tests", "backend_coverage", "frontend_tests"), "a test-suite count"),
+)
+
+
+def _resume_placeholders(rows: Mapping[str, HeadlineRow]) -> str:
+    """A note naming the bullets that leave out a result because it is not measured yet."""
+    waiting = [
+        f"bullet {number} waits on {what}"
+        for number, keys, what in _RESUME_PENDING
+        if any(not rows[key].measured for key in keys)
+    ]
+    if not waiting:
+        return ""
+    return (
+        f"**Placeholders:** {'; '.join(waiting)}. Until then each of these bullets says what "
+        "the code does, without a result."
+    )
+
+
 def render_resume(
     rows: Mapping[str, HeadlineRow],
     brackets: Sequence[BracketConfig],
     *,
     facts: RepoFacts | None = None,
 ) -> str:
-    """Six numbered bullets; without ``facts`` they follow this repository's features."""
+    """Six numbered bullets, then a note on the bullets still waiting for a measurement.
+
+    Without ``facts`` they follow this repository's features.
+    """
     present = repo_facts(ROOT) if facts is None else facts
     bullets = (
         _resume_project(rows, sum(b.count for b in brackets), len(brackets), present),
@@ -546,7 +573,9 @@ def render_resume(
         _RESUME_PRIVACY,
         _resume_quality(rows, present),
     )
-    return "\n".join(f"{n}. {bullet}" for n, bullet in enumerate(bullets, start=1))
+    text = "\n".join(f"{n}. {bullet}" for n, bullet in enumerate(bullets, start=1))
+    note = _resume_placeholders(rows)
+    return f"{text}\n\n{note}" if note else text
 
 
 # --------------------------------------------------------------------------- sync
