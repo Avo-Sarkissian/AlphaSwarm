@@ -163,30 +163,9 @@ built this way, see [DECISIONS.md](DECISIONS.md). For how to run it, see
 
 ## Neo4j graph model
 
-```text
-(:Agent {id, name, bracket, risk_profile, temperature, influence_weight_base})
-(:Cycle {cycle_id, seed_rumor, overall_sentiment, created_at, status, error_code, num_rounds,
-         modifiers_json, prompt_template_hash, run_manifest_json, sim_seed, experiment_tag,
-         <metrics>, metrics_recorded_at})
-    -[:MENTIONS {relevance, sentiment, ticker}]->(:Entity {name, type})
-(:Agent)-[:MADE]->(:Decision {decision_id, cycle_id, round, signal, confidence, sentiment,
-                              rationale, control, error_kind, parse_tier, peer_ids,
-                              citations_invalid, shock_treated, narrative})
-(:Decision)-[:CITED]->(:Agent)
-(:Decision)-[:HAS_EPISODE]->(:RationaleEpisode {peer_context_received, flip_type, round, cycle_id})
-(:Decision)-[:REFERENCES {match_type: "token"}]->(:Entity)      # cycle's own (name, type)
-(:Agent)-[:INFLUENCED_BY {weight, cycle_id, round}]->(:Agent)
-(:Cycle)-[:HAS_SHOCK]->(:ShockEvent)
-# History only, no longer written: (:Post), [:AUTHORED], [:HAS_POST],
-# (:Decision)-[:FOR]->(:Cycle), RationaleEpisode.rationale, Agent.decision_narrative
-```
-
-Signals are stored lowercase (`SignalType.value`). Schema statements (constraints
-and indexes) live in `graph/schema_writes.py` `SCHEMA_STATEMENTS` and are applied by
-`ensure_schema()`. That function also seeds the Agent nodes, drops the retired indexes
-(it deletes no data: the old Agent narrative property stays until the owner runs
-`remove_legacy_properties()` after a backup, `docs/RUNBOOK.md` §3), and skips the `decision_id_unique` constraint while
-duplicate decision ids exist (`docs/DECISIONS.md#adr-neo4j-schema`).
+The full model (a Mermaid ER diagram, node and relationship properties, indexes and
+constraints, and what is no longer written) is in [graph-schema.md](graph-schema.md).
+A test keeps it in step with the Cypher in `src/alphaswarm/graph/`.
 
 ## Run provenance and experiment controls
 
